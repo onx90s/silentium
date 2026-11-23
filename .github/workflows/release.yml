@@ -1,0 +1,125 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            asset: silentium-linux-x64
+            archive: tar.gz
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            asset: silentium-linux-arm64
+            archive: tar.gz
+          - os: macos-13
+            target: x86_64-apple-darwin
+            asset: silentium-darwin-x64
+            archive: tar.gz
+          - os: macos-14
+            target: aarch64-apple-darwin
+            asset: silentium-darwin-arm64
+            archive: tar.gz
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            asset: silentium-windows-x64
+            archive: zip
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: build
+        run: cargo build --release --locked --target ${{ matrix.target }}
+
+      - name: empacotar (unix)
+        if: matrix.archive == 'tar.gz'
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="${{ matrix.asset }}.tar.gz"
+          cp "target/${{ matrix.target }}/release/silentium" ./silentium
+          chmod +x ./silentium
+          tar -czf "$out" silentium
+          sha256sum "$out" > "$out.sha256"
+
+      - name: empacotar (windows)
+        if: matrix.archive == 'zip'
+        shell: pwsh
+        run: |
+          $out = "${{ matrix.asset }}.zip"
+          Copy-Item "target/${{ matrix.target }}/release/silentium.exe" -Destination "silentium.exe"
+          Compress-Archive -Path "silentium.exe" -DestinationPath $out -Force
+          (Get-FileHash $out -Algorithm SHA256).Hash.ToLower() + "  " + $out | Out-File -Encoding ascii "$out.sha256"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: |
+            ${{ matrix.asset }}.${{ matrix.archive }}
+            ${{ matrix.asset }}.${{ matrix.archive }}.sha256
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: checksums agregados
+        run: |
+          cd dist
+          : > SHASUMS256.txt
+          for f in *; do
+            case "$f" in *.sha256|SHASUMS256.txt) continue;; esac
+            sha256sum "$f" >> SHASUMS256.txt
+          done
+          sort -k2 SHASUMS256.txt -o SHASUMS256.txt
+          cat SHASUMS256.txt
+          rm -f *.sha256
+
+      - name: publicar release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          if [ -z "$tag" ] || [ "$tag" = "main" ]; then tag="v$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)"; fi
+          gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" --title "$tag" --generate-notes
+          gh release upload "$tag" dist/* --clobber
+
+  npm:
+    needs: publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+      - name: publicar no npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -z "${NODE_AUTH_TOKEN:-}" ]; then
+            echo "NPM_TOKEN ausente: pulando publicação"
+            exit 0
+          fi
+          npm publish --access public --provenance=false

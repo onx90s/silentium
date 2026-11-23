@@ -1,0 +1,36 @@
+[package]
+name = "silentium"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+description = "Discord voice kill switch: drop/mute/deafen every call participant, plus local voice-traffic shaping"
+license = "MIT"
+authors = ["onx90s"]
+repository = "https://github.com/onx90s/silentium"
+homepage = "https://github.com/onx90s/silentium"
+readme = "README.md"
+keywords = ["discord", "voice", "firewall", "qos", "cli"]
+categories = ["command-line-utilities", "network-programming"]
+
+[[bin]]
+name = "silentium"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive", "env"] }
+ctrlc = "3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[target.'cfg(windows)'.dependencies]
+ureq = { version = "2.12", default-features = false, features = ["json", "native-tls", "gzip"] }
+
+[target.'cfg(unix)'.dependencies]
+ureq = { version = "2.12", default-features = false, features = ["json", "tls", "gzip"] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
+opt-level = 3

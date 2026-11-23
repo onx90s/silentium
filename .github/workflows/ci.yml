@@ -1,0 +1,40 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: formato
+        run: cargo fmt --all -- --check
+      - name: lints
+        run: cargo clippy --all-targets --locked -- -D warnings
+      - name: testes
+        run: cargo test --locked
+      - name: build
+        run: cargo build --release --locked
+
+  npm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: sintaxe do pacote npm
+        run: |
+          node --check npm/lib.js
+          node --check npm/install.js
+          node --check npm/bin/silentium.js
+      - name: empacotar
+        run: npm pack --dry-run

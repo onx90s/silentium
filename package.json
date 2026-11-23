@@ -1,0 +1,47 @@
+{
+  "name": "silentium",
+  "version": "0.1.0",
+  "description": "Kill switch de voz para Discord: detecta a call pelos sockets locais e corta, limita, muta ou derruba participantes",
+  "keywords": [
+    "discord",
+    "voice",
+    "kill-switch",
+    "firewall",
+    "qos",
+    "audio",
+    "cli",
+    "rust"
+  ],
+  "license": "MIT",
+  "author": "onx90s",
+  "homepage": "https://github.com/onx90s/silentium#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/onx90s/silentium.git"
+  },
+  "bugs": {
+    "url": "https://github.com/onx90s/silentium/issues"
+  },
+  "bin": {
+    "silentium": "npm/bin/silentium.js"
+  },
+  "files": [
+    "npm/",
+    "src/",
+    "Cargo.toml",
+    "Cargo.lock",
+    "rust-toolchain.toml",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "postinstall": "node npm/install.js",
+    "prepublishOnly": "node -e \"const l=require('./npm/lib.js');console.log('publicando v'+l.packageVersion())\""
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
