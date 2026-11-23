@@ -289,13 +289,6 @@ fn token_line(cli: &Cli, color: bool) -> String {
     }
 }
 
-fn guild_line(cli: &Cli, color: bool) -> String {
-    match &cli.guild {
-        Some(g) => format!("{} {g}", dot(color, true)),
-        None => format!("{} --guild não definido (use --invite)", dot(color, false)),
-    }
-}
-
 fn privilege_line(color: bool) -> String {
     if is_root() {
         format!(

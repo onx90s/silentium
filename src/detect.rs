@@ -145,7 +145,7 @@ mod linux {
                 rate_kbps: Some(kbps),
             });
         }
-        peers.sort_by(|a, b| a.endpoint().cmp(&b.endpoint()));
+        peers.sort_by_key(|a| a.endpoint());
         peers.dedup_by(|a, b| a.endpoint() == b.endpoint());
         Ok(peers)
     }
@@ -305,7 +305,7 @@ mod windows {
                 rate_kbps: None,
             });
         }
-        peers.sort_by(|a, b| a.endpoint().cmp(&b.endpoint()));
+        peers.sort_by_key(|a| a.endpoint());
         peers.dedup_by(|a, b| a.endpoint() == b.endpoint());
         peers
     }

@@ -250,6 +250,40 @@ pub fn invite_code(raw: &str) -> Result<String> {
     Ok(code.to_string())
 }
 
+/// Descobre se o token é de bot ou de usuário, e devolve o nome da conta.
+pub fn probe(token: &str) -> Result<(bool, String)> {
+    if let Ok(name) = probe_with(token, true) {
+        return Ok((false, name));
+    }
+    let name = probe_with(token, false).context("token recusado pela API")?;
+    Ok((true, name))
+}
+
+fn probe_with(token: &str, bot: bool) -> Result<String> {
+    let auth = if bot {
+        format!("Bot {token}")
+    } else {
+        token.to_string()
+    };
+    let agent = ureq::AgentBuilder::new()
+        .timeout_connect(Duration::from_secs(8))
+        .timeout(Duration::from_secs(15))
+        .build();
+    let resp = agent
+        .get(&format!("{API}/users/@me"))
+        .set("Authorization", &auth)
+        .set("User-Agent", "Silentium")
+        .call()
+        .map_err(|err| anyhow!("{err}"))?;
+    let value: Value = resp.into_json().context("resposta inesperada")?;
+    let name = value
+        .get("username")
+        .and_then(Value::as_str)
+        .unwrap_or("conta")
+        .to_string();
+    Ok(name)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{invite_code, Api};
@@ -295,38 +329,4 @@ mod tests {
         assert!(Api::body_for("explodir").is_err());
         assert!(Api::body_for("drop").is_ok());
     }
-}
-
-/// Descobre se o token é de bot ou de usuário, e devolve o nome da conta.
-pub fn probe(token: &str) -> Result<(bool, String)> {
-    if let Ok(name) = probe_with(token, true) {
-        return Ok((false, name));
-    }
-    let name = probe_with(token, false).context("token recusado pela API")?;
-    Ok((true, name))
-}
-
-fn probe_with(token: &str, bot: bool) -> Result<String> {
-    let auth = if bot {
-        format!("Bot {token}")
-    } else {
-        token.to_string()
-    };
-    let agent = ureq::AgentBuilder::new()
-        .timeout_connect(Duration::from_secs(8))
-        .timeout(Duration::from_secs(15))
-        .build();
-    let resp = agent
-        .get(&format!("{API}/users/@me"))
-        .set("Authorization", &auth)
-        .set("User-Agent", "Silentium")
-        .call()
-        .map_err(|err| anyhow!("{err}"))?;
-    let value: Value = resp.into_json().context("resposta inesperada")?;
-    let name = value
-        .get("username")
-        .and_then(Value::as_str)
-        .unwrap_or("conta")
-        .to_string();
-    Ok(name)
 }

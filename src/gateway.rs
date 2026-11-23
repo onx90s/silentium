@@ -12,6 +12,7 @@ pub struct VoiceUser {
     pub name: String,
     pub channel_id: String,
     pub guild_id: String,
+    #[allow(dead_code)]
     pub self_stream: bool,
 }
 
@@ -25,9 +26,10 @@ pub struct Snapshot {
 pub fn snapshot(token: &str, user_token: bool, seconds: u64) -> Result<Snapshot> {
     match snapshot_try(token, user_token, seconds) {
         Ok(snap) => Ok(snap),
-        Err(first) => snapshot_try(token, !user_token, seconds)
-            .map_err(|_| first)
-            .map(|snap| snap),
+        Err(first) => match snapshot_try(token, !user_token, seconds) {
+            Ok(snap) => Ok(snap),
+            Err(_) => Err(first),
+        },
     }
 }
 
