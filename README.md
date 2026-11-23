@@ -29,7 +29,7 @@ Silentium é uma CLI em Rust que trata a voz do Discord como infraestrutura: voc
 | **controle de voz** | derruba, muta, ensurdece, restaura e vigia entrada de participantes via REST | token com permissões de moderação |
 | **shaping de rede** | corta ou limita só o tráfego do Discord, o resto da máquina segue intacto | root (Linux) / Administrador (Windows) |
 
-O binário é pequeno, sem runtime, sem dependência de Node ou Python. `npm install -g silentium` existe só como transporte do binário.
+O binário é pequeno, sem runtime, sem dependência de Node ou Python. `npm install -g @onxdev/silentium` existe só como transporte do binário.
 
 ## Como funciona
 
