@@ -261,10 +261,10 @@ fn token_line(cli: &Cli, color: bool) -> String {
     match crate::token_of(cli) {
         Some(t) => {
             let cfg = crate::config::load();
-            let tipo = if crate::uses_user_token(cli) || cfg.user_token {
+            let tipo = if cli.user_token || cfg.user_token {
                 ", usuário"
             } else {
-                ", bot"
+                ", tipo automático"
             };
             format!(
                 "{} definido ({}{})",

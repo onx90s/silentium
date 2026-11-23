@@ -267,8 +267,30 @@ pub(crate) fn voice_dispatch(cli: &Cli, cmd: &VoiceCmd) -> Result<()> {
         VoiceCmd::Guard { .. } | VoiceCmd::Who | VoiceCmd::Leave => unreachable!(),
     };
 
-    let (guild, channel) = resolve_scope(&api, cli, target)?;
-    let targets = collect_targets(&api, &guild, channel.as_deref(), &target.user)?;
+    let (guild, channel) = match resolve_scope(&api, cli, target) {
+        Ok(scope) => scope,
+        Err(err) => {
+            if action == "list" {
+                return who(cli);
+            }
+            return Err(err);
+        }
+    };
+
+    let targets = match collect_targets(&api, &guild, channel.as_deref(), &target.user) {
+        Ok(list) => list,
+        Err(_) if action == "list" => return who(cli),
+        Err(err) => {
+            if api.is_user_token() {
+                bail!(
+                    "token de usuário não altera outros membros (a API devolve 403).\n\
+                     use `silentium voice leave` para sair da call ou `silentium net auto` para cortar.\n\
+                     causa: {err:#}"
+                );
+            }
+            return Err(err);
+        }
+    };
 
     if targets.is_empty() {
         println!("ninguém em voz no escopo");

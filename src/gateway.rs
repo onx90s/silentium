@@ -23,6 +23,15 @@ pub struct Snapshot {
 }
 
 pub fn snapshot(token: &str, user_token: bool, seconds: u64) -> Result<Snapshot> {
+    match snapshot_try(token, user_token, seconds) {
+        Ok(snap) => Ok(snap),
+        Err(first) => snapshot_try(token, !user_token, seconds)
+            .map_err(|_| first)
+            .map(|snap| snap),
+    }
+}
+
+fn snapshot_try(token: &str, user_token: bool, seconds: u64) -> Result<Snapshot> {
     let (mut socket, _) = connect(URL).context("não conectei ao gateway")?;
     match socket.get_ref() {
         tungstenite::stream::MaybeTlsStream::Plain(tcp) => {

@@ -56,7 +56,10 @@ pub struct InviteChannel {
 
 pub struct Api {
     agent: ureq::Agent,
-    header: String,
+    token: String,
+    /// `true` = token de usuário (header cru); `false` = bot (`Bot <token>`).
+    user_token: std::cell::Cell<bool>,
+    trocou: std::cell::Cell<bool>,
     pub dry_run: bool,
     pub delay_ms: u64,
 }
@@ -67,21 +70,40 @@ impl Api {
             .timeout_connect(Duration::from_secs(10))
             .timeout(Duration::from_secs(30))
             .build();
-        let header = if user_token {
-            token
-        } else {
-            format!("Bot {token}")
-        };
         Self {
             agent,
-            header,
+            token,
+            user_token: std::cell::Cell::new(user_token),
+            trocou: std::cell::Cell::new(false),
             dry_run,
             delay_ms,
         }
     }
 
+    fn header(&self) -> String {
+        if self.user_token.get() {
+            self.token.clone()
+        } else {
+            format!("Bot {}", self.token)
+        }
+    }
+
+    /// 401 na primeira tentativa = tipo de token errado. Troca e segue.
+    fn alternar(&self) -> bool {
+        if self.trocou.get() {
+            return false;
+        }
+        self.trocou.set(true);
+        self.user_token.set(!self.user_token.get());
+        true
+    }
+
+    pub fn is_user_token(&self) -> bool {
+        self.user_token.get()
+    }
+
     fn auth(&self, req: ureq::Request) -> ureq::Request {
-        req.set("Authorization", &self.header)
+        req.set("Authorization", &self.header())
             .set("User-Agent", "Silentium/0.1 (local)")
             .set("Content-Type", "application/json")
     }
@@ -103,6 +125,9 @@ impl Api {
                 }
                 Err(ureq::Error::Status(code, resp)) => {
                     let payload = resp.into_json::<Value>().unwrap_or(Value::Null);
+                    if code == 401 && self.alternar() {
+                        continue;
+                    }
                     if code == 429 {
                         let wait = payload
                             .get("retry_after")
@@ -168,7 +193,7 @@ impl Api {
         let req = self
             .agent
             .get(&url)
-            .set("Authorization", &self.header)
+            .set("Authorization", &self.header())
             .set("User-Agent", "Silentium/0.1 (local)");
         match req.call() {
             Ok(resp) => {
