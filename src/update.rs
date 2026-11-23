@@ -95,8 +95,10 @@ fn update_binary(tag: &str) -> Result<()> {
     fs::create_dir_all(&dir).context("criando diretório temporário")?;
     let archive = dir.join(&asset);
 
-    let mut reader = agent
+    println!("baixando {asset}…");
+    let mut reader = download_agent()
         .get(&format!("{base}/{asset}"))
+        .set("User-Agent", &format!("silentium/{CURRENT}"))
         .call()
         .with_context(|| format!("baixando {asset}"))?
         .into_reader();
@@ -260,6 +262,16 @@ fn asset_name() -> Option<String> {
 fn agent() -> ureq::Agent {
     ureq::AgentBuilder::new()
         .timeout(Duration::from_secs(20))
+        .build()
+}
+
+/// Download usa timeout próprio: o asset vem de objects.githubusercontent.com,
+/// que é lento e redirecionado — 20 s não bastam.
+fn download_agent() -> ureq::Agent {
+    ureq::AgentBuilder::new()
+        .timeout_connect(Duration::from_secs(20))
+        .timeout_read(Duration::from_secs(240))
+        .timeout_write(Duration::from_secs(60))
         .build()
 }
 
