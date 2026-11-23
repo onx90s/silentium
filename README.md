@@ -10,7 +10,7 @@
 **Kill switch de voz para Discord.** Detecta a call ativa pelos sockets locais do cliente e corta, limita, muta ou derruba — sem plugin, sem injeção, sem tocar no aplicativo.
 
 [![release](https://img.shields.io/github/v/release/onx90s/silentium?color=6c8cff)](https://github.com/onx90s/silentium/releases)
-[![npm](https://img.shields.io/npm/v/silentium?color=cb3837)](https://www.npmjs.com/package/silentium)
+[![npm](https://img.shields.io/npm/v/@onx90s/silentium?label=npm&color=cb3837)](https://www.npmjs.com/package/@onx90s/silentium)
 [![ci](https://img.shields.io/github/actions/workflow/status/onx90s/silentium/ci.yml?label=ci)](https://github.com/onx90s/silentium/actions)
 [![license](https://img.shields.io/badge/license-MIT-8fbcbb)](#licença)
 ![platforms](https://img.shields.io/badge/plataformas-linux%20·%20windows%20·%20macos-9aa0a6)
@@ -51,19 +51,21 @@ Permissões exigidas no servidor: `MOVE_MEMBERS`, `MUTE_MEMBERS`, `DEAFEN_MEMBER
 ### npm (recomendado)
 
 ```bash
-npm install -g silentium
+npm install -g @onx90s/silentium
 silentium
 ```
 
-O `postinstall` baixa o binário pré-compilado para a sua plataforma direto dos releases, confere o SHA-256 e coloca em `node_modules/silentium/vendor/`. Sem Rust instalado, sem compilação.
+O `postinstall` baixa o binário pré-compilado para a sua plataforma direto dos releases, confere o SHA-256 e coloca em `node_modules/@onx90s/silentium/vendor/`. Sem Rust instalado, sem compilação. Se o download falhar e houver Rust na máquina, ele compila na hora.
 
-Linux, macOS e Windows usam exatamente o mesmo comando. Precisa de Node 18+ apenas para instalar.
+Linux, macOS e Windows usam exatamente o mesmo comando. Precisa de Node 18+ apenas para instalar; o binário em si não tem runtime.
 
 Sem instalar nada globalmente:
 
 ```bash
-npx silentium
+npx @onx90s/silentium
 ```
+
+> O nome `silentium` no npm pertence a outro projeto (uma solução de mensageria). Este CLI é publicado sob o escopo `@onx90s`, e o comando continua sendo `silentium`.
 
 ### Cargo
 
@@ -284,7 +286,7 @@ MIT. Veja [LICENSE](LICENSE).
 **Silentium** is a voice kill switch for Discord, written in Rust. It detects an active call by inspecting the client's local UDP sockets (50000–65535), then drops, mutes, deafens or restores participants through the REST v10 API, or shapes the machine's network so only Discord traffic is cut.
 
 ```bash
-npm install -g silentium
+npm install -g @onx90s/silentium
 silentium            # banner, local diagnosis, interactive menu
 silentium detect     # no credentials needed
 ```
