@@ -252,13 +252,12 @@ fn menu(color: bool, update_available: bool) {
     println!("\n  {}menu{}", bold(color), reset(color));
     if update_available {
         println!(
-            "  {}{:>2}{}  {:<28} {}{}{}",
+            "  {}{:>2}{}  {:<28} {}baixa e troca o binário{}",
             accent(color),
             "u",
             reset(color),
             "atualizar agora",
             dim(color),
-            "baixa e troca o binário",
             reset(color)
         );
     }
