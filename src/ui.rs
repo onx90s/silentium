@@ -30,7 +30,11 @@ const MENU: [(&str, &str, &str); 8] = [
     ("5", "mutar todos", "token com MUTE_MEMBERS"),
     ("6", "ensurdecer todos", "token com DEAFEN_MEMBERS"),
     ("7", "restaurar todos", "desfaz mute e deafen"),
-    ("8", "cortar internet do Discord", "firewall, só o processo dele"),
+    (
+        "8",
+        "cortar internet do Discord",
+        "firewall, só o processo dele",
+    ),
 ];
 
 pub fn interactive(cli: &Cli) -> Result<()> {
@@ -143,7 +147,11 @@ fn ensure_token(cli: &Cli, color: bool) {
     }
     let token = linha.trim().to_string();
     if token.is_empty() {
-        println!("  {}seguindo sem token — só detecção e firewall{}", dim(color), reset(color));
+        println!(
+            "  {}seguindo sem token — só detecção e firewall{}",
+            dim(color),
+            reset(color)
+        );
         return;
     }
 
@@ -161,7 +169,11 @@ fn ensure_token(cli: &Cli, color: bool) {
                     crate::config::path().display(),
                     reset(color)
                 ),
-                Err(err) => println!("  {}não consegui salvar: {err:#}{}", bad(color), reset(color)),
+                Err(err) => println!(
+                    "  {}não consegui salvar: {err:#}{}",
+                    bad(color),
+                    reset(color)
+                ),
             }
             println!("  {}conectado como {nome}{}", ok(color), reset(color));
         }

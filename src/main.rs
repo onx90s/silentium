@@ -1,8 +1,8 @@
 mod cli;
 mod config;
 mod detect;
-mod gateway;
 mod discord;
+mod gateway;
 mod net;
 mod ui;
 mod update;
@@ -83,8 +83,15 @@ pub(crate) fn who(cli: &Cli) -> Result<()> {
             println!("\n{nome}  ({})", user.guild_id);
             atual = user.guild_id.clone();
         }
-        let marca = if user.user_id == snap.me { "  ← você" } else { "" };
-        println!("  {:<20} {:<22} canal {}{}", user.user_id, user.name, user.channel_id, marca);
+        let marca = if user.user_id == snap.me {
+            "  ← você"
+        } else {
+            ""
+        };
+        println!(
+            "  {:<20} {:<22} canal {}{}",
+            user.user_id, user.name, user.channel_id, marca
+        );
     }
     Ok(())
 }
@@ -150,7 +157,12 @@ pub(crate) fn token_of(cli: &Cli) -> Option<String> {
 fn build_api(cli: &Cli) -> Result<Api> {
     let token = token_of(cli)
         .context("sem token — rode `silentium` e cole o seu token na primeira pergunta")?;
-    Ok(Api::new(token, cli.dry_run, cli.delay_ms, uses_user_token(cli)))
+    Ok(Api::new(
+        token,
+        cli.dry_run,
+        cli.delay_ms,
+        uses_user_token(cli),
+    ))
 }
 
 /// Guild/canal da call em que a conta está, descobertos pelo gateway.

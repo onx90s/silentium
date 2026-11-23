@@ -38,7 +38,8 @@ fn snapshot_try(token: &str, user_token: bool, seconds: u64) -> Result<Snapshot>
             tcp.set_read_timeout(Some(Duration::from_millis(400)))?;
         }
         tungstenite::stream::MaybeTlsStream::Rustls(tls) => {
-            tls.get_ref().set_read_timeout(Some(Duration::from_millis(400)))?;
+            tls.get_ref()
+                .set_read_timeout(Some(Duration::from_millis(400)))?;
         }
         _ => {}
     }
@@ -79,8 +80,9 @@ fn snapshot_try(token: &str, user_token: bool, seconds: u64) -> Result<Snapshot>
         }
 
         if Instant::now() >= next_beat {
-            socket
-                .send(Message::Text(json!({"op": 1, "d": Value::Null}).to_string().into()))?;
+            socket.send(Message::Text(
+                json!({"op": 1, "d": Value::Null}).to_string().into(),
+            ))?;
             next_beat = Instant::now() + Duration::from_millis(interval as u64);
         }
 
@@ -142,13 +144,16 @@ fn snapshot_try(token: &str, user_token: bool, seconds: u64) -> Result<Snapshot>
                     .or_else(|| d["member"]["nick"].as_str())
                     .unwrap_or(&uid)
                     .to_string();
-                upsert(&mut users, VoiceUser {
-                    user_id: uid,
-                    name,
-                    channel_id: channel,
-                    guild_id: gid,
-                    self_stream: d["self_stream"].as_bool().unwrap_or(false),
-                });
+                upsert(
+                    &mut users,
+                    VoiceUser {
+                        user_id: uid,
+                        name,
+                        channel_id: channel,
+                        guild_id: gid,
+                        self_stream: d["self_stream"].as_bool().unwrap_or(false),
+                    },
+                );
             }
             _ => {}
         }
@@ -181,13 +186,16 @@ fn collect(states: Option<&Value>, gid: &str, out: &mut Vec<VoiceUser>) {
             .or_else(|| state["member"]["nick"].as_str())
             .unwrap_or(&uid)
             .to_string();
-        upsert(out, VoiceUser {
-            user_id: uid,
-            name,
-            channel_id: channel.to_string(),
-            guild_id: gid.to_string(),
-            self_stream: state["self_stream"].as_bool().unwrap_or(false),
-        });
+        upsert(
+            out,
+            VoiceUser {
+                user_id: uid,
+                name,
+                channel_id: channel.to_string(),
+                guild_id: gid.to_string(),
+                self_stream: state["self_stream"].as_bool().unwrap_or(false),
+            },
+        );
     }
 }
 
@@ -199,7 +207,9 @@ fn upsert(out: &mut Vec<VoiceUser>, user: VoiceUser) {
     }
 }
 
-fn next_json(socket: &mut tungstenite::WebSocket<tungstenite::stream::MaybeTlsStream<std::net::TcpStream>>) -> Result<Value> {
+fn next_json(
+    socket: &mut tungstenite::WebSocket<tungstenite::stream::MaybeTlsStream<std::net::TcpStream>>,
+) -> Result<Value> {
     loop {
         match socket.read() {
             Ok(Message::Text(text)) => {
