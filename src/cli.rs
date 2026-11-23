@@ -45,6 +45,12 @@ pub enum Cmd {
     Resolve { invite: String },
     /// Detecta a call ativa olhando os sockets locais do Discord. Não usa API.
     Detect,
+    /// Verifica e instala a atualização mais recente publicada no GitHub.
+    Update {
+        /// Só informa se existe versão nova, sem instalar.
+        #[arg(long)]
+        check: bool,
+    },
     /// Operações na sessão de voz.
     #[command(subcommand)]
     Voice(VoiceCmd),

@@ -221,6 +221,23 @@ sudo silentium net block          # até Enter/Ctrl-C
 sudo silentium net block --seconds 120
 ```
 
+## Atualização
+
+O CLI consulta a última release do GitHub uma vez a cada 6 horas (cache em `~/.cache/silentium/update.json`) e avisa na tela inicial:
+
+```
+  atualização disponível: v0.2.0 (você tem v0.1.0)
+```
+
+Aí é só escolher `u` no menu, ou rodar direto:
+
+```bash
+silentium update --check    # só informa
+silentium update            # baixa, confere o SHA-256 e troca o binário
+```
+
+Como ele se atualiza depende de como foi instalado: pacote npm → `npm install -g @onxdev/silentium@<versão>`; binário solto → baixa o asset da release, valida o checksum e substitui o executável no lugar (no Windows via renomear, já que o arquivo em uso não pode ser sobrescrito).
+
 ## Permissões
 
 | operação | Linux | Windows |

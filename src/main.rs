@@ -3,6 +3,7 @@ mod detect;
 mod discord;
 mod net;
 mod ui;
+mod update;
 
 use anyhow::{bail, Context, Result};
 use clap::Parser;
@@ -54,6 +55,7 @@ fn run() -> Result<()> {
             }
             Ok(())
         }
+        Some(Cmd::Update { check }) => update::run(check),
         Some(Cmd::Voice(cmd)) => voice_dispatch(&cli, &cmd),
     }
 }

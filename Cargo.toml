@@ -1,6 +1,6 @@
 [package]
 name = "silentium"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.75"
 description = "Discord voice kill switch: drop/mute/deafen every call participant, plus local voice-traffic shaping"
@@ -22,6 +22,7 @@ clap = { version = "4", features = ["derive", "env"] }
 ctrlc = "3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sha2 = "0.10"
 
 [target.'cfg(windows)'.dependencies]
 ureq = { version = "2.12", default-features = false, features = ["json", "native-tls", "gzip"] }

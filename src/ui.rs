@@ -46,7 +46,23 @@ pub fn interactive(cli: &Cli) -> Result<()> {
         return Ok(());
     }
 
-    menu(color);
+    let pending = if io::stdout().is_terminal() {
+        crate::update::check(false)
+    } else {
+        None
+    };
+    if let Some(tag) = &pending {
+        println!(
+            "\n  {}atualização disponível:{} {} {}(você tem v{}){}",
+            warn(color),
+            reset(color),
+            bold(color),
+            tag,
+            env!("CARGO_PKG_VERSION"),
+            reset(color)
+        );
+    }
+    menu(color, pending.is_some());
     loop {
         print!("\n{}silentium ›{} ", accent(color), reset(color));
         io::stdout().flush()?;
@@ -74,6 +90,20 @@ pub fn interactive(cli: &Cli) -> Result<()> {
             "5" => voice(cli, VoiceCmd::Deafen(TargetArgs::default()))?,
             "6" => voice(cli, VoiceCmd::Restore(TargetArgs::default()))?,
             "7" => cut_discord(color)?,
+            "u" | "atualizar" | "update" => {
+                if pending.is_some() {
+                    if let Err(err) = crate::update::run(false) {
+                        println!("{}falha ao atualizar: {err:#}{}", bad(color), reset(color));
+                    }
+                } else {
+                    println!(
+                        "{}nada para atualizar — v{} é a última{}",
+                        dim(color),
+                        env!("CARGO_PKG_VERSION"),
+                        reset(color)
+                    );
+                }
+            }
             "?" | "h" | "help" => help_hint(color),
             other => println!(
                 "{}opção desconhecida: {}{}",
@@ -82,7 +112,7 @@ pub fn interactive(cli: &Cli) -> Result<()> {
                 reset(color)
             ),
         }
-        menu(color);
+        menu(color, pending.is_some());
     }
     Ok(())
 }
@@ -218,8 +248,20 @@ fn is_root() -> bool {
     }
 }
 
-fn menu(color: bool) {
+fn menu(color: bool, update_available: bool) {
     println!("\n  {}menu{}", bold(color), reset(color));
+    if update_available {
+        println!(
+            "  {}{:>2}{}  {:<28} {}{}{}",
+            accent(color),
+            "u",
+            reset(color),
+            "atualizar agora",
+            dim(color),
+            "baixa e troca o binário",
+            reset(color)
+        );
+    }
     for (key, label, hint) in MENU {
         println!(
             "  {}{:>2}{}  {:<28} {}{}{}",
