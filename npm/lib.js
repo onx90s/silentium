@@ -180,7 +180,31 @@ function buildFromSource() {
   return target;
 }
 
+// Instala o binário se ainda não estiver presente: release -> cargo.
+async function ensureBinary({ quiet = false } = {}) {
+  const existing = resolveBinary();
+  if (existing) return existing;
+
+  const tag = platformTag();
+  if (tag && !isMusl()) {
+    try {
+      const target = await downloadRelease(tag);
+      if (!quiet) console.log(`[silentium] binário instalado: ${target}`);
+      return target;
+    } catch (err) {
+      if (!quiet) console.warn(`[silentium] download falhou (${err.message}); tentando compilar`);
+    }
+  } else if (!quiet) {
+    console.warn(`[silentium] sem binário pronto para ${process.platform}/${process.arch}; compilando`);
+  }
+
+  const target = buildFromSource();
+  if (!quiet) console.log(`[silentium] binário compilado: ${target}`);
+  return target;
+}
+
 module.exports = {
+  ensureBinary,
   REPO,
   PKG_ROOT,
   VENDOR,
