@@ -127,7 +127,12 @@ fn update_binary(tag: &str) -> Result<()> {
     let replaced = replace_self(&new_bin);
     let _ = fs::remove_dir_all(&dir);
     replaced?;
-    println!("pronto — {tag} instalado em {}", self_path()?.display());
+    // o caminho antigo aparece como "… (deleted)" logo após o rename
+    let shown = self_path()?
+        .to_string_lossy()
+        .replace(" (deleted)", "")
+        .to_string();
+    println!("pronto — {tag} instalado em {shown}");
     Ok(())
 }
 

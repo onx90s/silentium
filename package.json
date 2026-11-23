@@ -1,6 +1,6 @@
 {
   "name": "@onxdev/silentium",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Kill switch de voz para Discord: detecta a call pelos sockets locais e corta, limita, muta ou derruba participantes",
   "keywords": [
     "discord",
