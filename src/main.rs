@@ -66,12 +66,6 @@ fn run() -> Result<()> {
 /// Imprime o estado da call olhando só os sockets locais do Discord.
 /// Lista quem está em voz usando o gateway (aceita token de usuário).
 pub(crate) fn who(cli: &Cli) -> Result<()> {
-    if !gateway_allowed(cli) {
-        bail!(
-            "quem está na call precisa de token de bot — o gateway invalida token de usuário.\n\
-             use `silentium detect` para ver a call e `silentium net auto` para cortar."
-        );
-    }
     let token = token_of(cli).context("sem token")?;
     let snap = gateway::snapshot(&token, uses_user_token(cli), 6)?;
     if snap.users.is_empty() {
@@ -105,12 +99,6 @@ pub(crate) fn who(cli: &Cli) -> Result<()> {
 
 /// Sai da própria call via gateway.
 pub(crate) fn leave(cli: &Cli) -> Result<()> {
-    if !gateway_allowed(cli) {
-        bail!(
-            "sair da call pelo gateway precisa de token de bot.\n\
-             com token de usuário: `silentium net auto --seconds 20` derruba a call na hora."
-        );
-    }
     let token = token_of(cli).context("sem token")?;
     let (guild, channel) = scope_from_call(cli)?;
     gateway::leave(&token, uses_user_token(cli), &guild, 8)?;
@@ -176,6 +164,37 @@ fn build_api(cli: &Cli) -> Result<Api> {
         cli.delay_ms,
         uses_user_token(cli),
     ))
+}
+
+/// Derruba a call: REST para todos quando o token tem poder; senão, sai e corta.
+pub(crate) fn drop_call(cli: &Cli) -> Result<()> {
+    let tentativa = voice_dispatch(cli, &VoiceCmd::Drop(TargetArgs::default()));
+    match tentativa {
+        Ok(()) => Ok(()),
+        Err(err) => {
+            println!("sem permissão para remover os participantes ({err:#})");
+            println!("caindo para: sair da call e cortar o Discord");
+            let saiu = leave(cli).map(|_| ());
+            if let Err(erro) = saiu {
+                println!("  não consegui sair pelo gateway: {erro:#}");
+            }
+            cut_for(net::ShapeSpec {
+                rate_kbps: 1,
+                loss_percent: None,
+                delay_ms: None,
+                iface: None,
+            })
+        }
+    }
+}
+
+fn cut_for(_spec: net::ShapeSpec) -> Result<()> {
+    if let Err(err) = net::block() {
+        println!("  corte de rede indisponível: {err:#}");
+        return Ok(());
+    }
+    wait_window(Some(15), "cortando o Discord")?;
+    net::unblock()
 }
 
 /// Diagnóstico: o que o token atual consegue e o que não consegue.
@@ -272,18 +291,13 @@ fn is_root_hint() -> bool {
 }
 
 /// Guild/canal da call em que a conta está, descobertos pelo gateway.
-/// Gateway com token de usuário derruba a sessão do cliente — só com `--gateway`.
-pub(crate) fn gateway_allowed(cli: &Cli) -> bool {
-    !uses_user_token(cli) || cli.gateway
+/// O gateway aceita token de usuário; a Discord pode encerrar a sessão do
+/// client desktop por causa disso, então `--gateway` força e o resto tenta.
+pub(crate) fn gateway_allowed(_cli: &Cli) -> bool {
+    true
 }
 
 pub(crate) fn scope_from_call(cli: &Cli) -> Result<(String, Option<String>)> {
-    if !gateway_allowed(cli) {
-        bail!(
-            "listar participantes precisa de token de bot (o gateway invalida token de usuário).\n\
-             com token de usuário use: silentium detect · silentium net auto"
-        );
-    }
     let token = token_of(cli).context("sem token para ler a call")?;
     let snap = gateway::snapshot(&token, uses_user_token(cli), 6)?;
     let mine = snap

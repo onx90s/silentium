@@ -113,14 +113,11 @@ O tipo é detectado sozinho: se o token funciona com prefixo `Bot` ele é de bot
 Menu:
 
 ```
- 1  detectar call                sockets locais, sem token
- 2  quem está na call            gateway, aceita token de usuário
- 3  sair da call                 derruba a sua sessão de voz
- 4  derrubar todos               token com MOVE_MEMBERS
- 5  mutar todos                  token com MUTE_MEMBERS
- 6  ensurdecer todos             token com DEAFEN_MEMBERS
- 7  restaurar todos              desfaz mute e deafen
- 8  cortar internet do Discord   firewall, só o processo dele
+ 1  detectar a call              sockets locais, sem token
+ 2  quem está na call            gateway, com o seu token
+ 3  derrubar todos               derruba a call
+ ?  ajuda                        comandos e flags
+ q  sair                         encerra
 ```
 
 Equivalente na linha de comando:

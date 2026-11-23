@@ -73,7 +73,11 @@ fn snapshot_try(token: &str, user_token: bool, seconds: u64) -> Result<Snapshot>
                 "d": {
                     "token": auth,
                     "capabilities": 30717,
-                    "properties": {"os": "Linux", "browser": "Chrome", "device": ""},
+                    "properties": {
+                        "os": std::env::consts::OS,
+                        "browser": "Discord Client",
+                        "device": ""
+                    },
                     "compress": false
                 }
             });
@@ -261,7 +265,11 @@ pub fn leave(token: &str, user_token: bool, guild_id: &str, seconds: u64) -> Res
             "d": {
                 "token": auth,
                 "capabilities": 30717,
-                "properties": {"os": "Linux", "browser": "Chrome", "device": ""},
+                "properties": {
+                        "os": std::env::consts::OS,
+                        "browser": "Discord Client",
+                        "device": ""
+                    },
                 "compress": false
             }
         })

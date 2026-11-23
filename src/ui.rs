@@ -1,5 +1,5 @@
 // rust — src/ui.rs — tela inicial: banner, diagnóstico local e menu interativo
-use crate::cli::{Cli, TargetArgs, VoiceCmd};
+use crate::cli::Cli;
 use crate::detect;
 use anyhow::Result;
 use std::io::{self, IsTerminal, Write};
@@ -22,19 +22,12 @@ const BANNER: [&str; 6] = [
     "╚═════╝  ╚═╝ ╚═════╝ ╚═════╝ ╚═╝  ╚═══╝    ╚═╝    ╚═╝  ╚═════╝  ╚═╝     ╚═╝",
 ];
 
-const MENU: [(&str, &str, &str); 8] = [
-    ("1", "detectar call", "sockets locais, sem token"),
-    ("2", "quem está na call", "gateway, aceita token de usuário"),
-    ("3", "sair da call", "derruba a sua sessão de voz"),
-    ("4", "derrubar todos", "token com MOVE_MEMBERS"),
-    ("5", "mutar todos", "token com MUTE_MEMBERS"),
-    ("6", "ensurdecer todos", "token com DEAFEN_MEMBERS"),
-    ("7", "restaurar todos", "desfaz mute e deafen"),
-    (
-        "8",
-        "cortar internet do Discord",
-        "firewall, só o processo dele",
-    ),
+const MENU: [(&str, &str, &str); 5] = [
+    ("1", "detectar a call", "sockets locais, sem token"),
+    ("2", "quem está na call", "gateway, com o seu token"),
+    ("3", "derrubar todos", "derruba a call"),
+    ("?", "ajuda", "comandos e flags"),
+    ("q", "sair", "encerra"),
 ];
 
 pub fn interactive(cli: &Cli) -> Result<()> {
@@ -91,12 +84,7 @@ pub fn interactive(cli: &Cli) -> Result<()> {
                 crate::print_detect()?;
             }
             "2" => crate::who(cli)?,
-            "3" => crate::leave(cli)?,
-            "4" => voice(cli, VoiceCmd::Drop(TargetArgs::default()))?,
-            "5" => voice(cli, VoiceCmd::Mute(TargetArgs::default()))?,
-            "6" => voice(cli, VoiceCmd::Deafen(TargetArgs::default()))?,
-            "7" => voice(cli, VoiceCmd::Restore(TargetArgs::default()))?,
-            "8" => cut_discord(color)?,
+            "3" => crate::drop_call(cli)?,
             "u" | "atualizar" | "update" => {
                 if pending.is_some() {
                     if let Err(err) = crate::update::run(false) {
@@ -286,7 +274,7 @@ fn token_line(cli: &Cli, color: bool) -> String {
                 tipo
             )
         }
-        None => format!("{} nenhum token — será pedido abaixo", dot(color, false)),
+        None => format!("{} nenhum token salvo", dot(color, false)),
     }
 }
 
@@ -342,24 +330,6 @@ fn menu(color: bool, update_available: bool) {
             reset(color)
         );
     }
-    println!(
-        "  {}{:>2}{}  {:<28} {}todos os comandos e flags{}",
-        dim(color),
-        "?",
-        reset(color),
-        "ajuda completa",
-        dim(color),
-        reset(color)
-    );
-    println!(
-        "  {}{:>2}{}  {:<28} {}encerra o menu{}",
-        dim(color),
-        "q",
-        reset(color),
-        "sair",
-        dim(color),
-        reset(color)
-    );
 }
 
 fn help_hint(color: bool) {
@@ -380,45 +350,6 @@ fn help_hint(color: bool) {
     );
 }
 
-fn voice(cli: &Cli, cmd: VoiceCmd) -> Result<()> {
-    if cli.token.is_none() {
-        println!(
-            "{}token ausente — exporte DISCORD_TOKEN ou use --token{}",
-            warn(color_or_off()),
-            reset(color_or_off())
-        );
-        return Ok(());
-    }
-    crate::voice_dispatch(cli, &cmd)
-}
-
-fn cut_discord(color: bool) -> Result<()> {
-    if !is_root() {
-        println!(
-            "{}sem privilégio.{} isso mexe no firewall — rode com sudo: {}sudo silentium{}",
-            warn(color),
-            reset(color),
-            bold(color),
-            reset(color)
-        );
-        return Ok(());
-    }
-    println!(
-        "{}cortando o Discord por processo…{}",
-        dim(color),
-        reset(color)
-    );
-    crate::net::block()?;
-    println!(
-        "{}internet do Discord cortada.{} Enter restaura.",
-        warn(color),
-        reset(color)
-    );
-    let _ = read_line()?;
-    crate::net::unblock()?;
-    Ok(())
-}
-
 fn read_line() -> Result<Option<String>> {
     let mut buf = String::new();
     let read = io::stdin().read_line(&mut buf)?;
@@ -426,10 +357,6 @@ fn read_line() -> Result<Option<String>> {
         return Ok(None);
     }
     Ok(Some(buf))
-}
-
-fn color_or_off() -> bool {
-    io::stdout().is_terminal()
 }
 
 fn accent(on: bool) -> &'static str {
