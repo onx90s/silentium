@@ -79,6 +79,8 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+
       - uses: actions/download-artifact@v4
         with:
           path: dist
@@ -101,7 +103,11 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           tag="${GITHUB_REF_NAME}"
-          if [ -z "$tag" ] || [ "$tag" = "main" ]; then tag="v$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)"; fi
+          case "$tag" in
+            v[0-9]*) ;;
+            *) tag="v$(grep -m1 '^version' Cargo.toml | sed 's/.*"\(.*\)".*/\1/')" ;;
+          esac
+          echo "publicando $tag"
           gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" --title "$tag" --generate-notes
           gh release upload "$tag" dist/* --clobber
 

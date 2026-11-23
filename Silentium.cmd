@@ -8,11 +8,16 @@ set "EXE=%~dp0target\release\silentium.exe"
 if not exist "%EXE%" set "EXE=%~dp0silentium.exe"
 set "TOKDIR=%LOCALAPPDATA%\Silentium"
 set "TOKFILE=%TOKDIR%\token.txt"
-
-echo ==========================================
-echo   Silentium - derruba a call do Discord
-echo   (so o Discord; resto do PC continua)
-echo ==========================================
+echo.
+echo  ____    ___   _     ___   _  _    ___   ___   _   _   __  __
+echo / ___|  |_ _| | |   | __| | \| |  |_ _| |_ _| | | | | |  \/  |
+echo \___ \   | |  | |   | _|  | .` |   | |   | |  | | | | | |\/| |
+echo  ___) |  | |  | |_  | |_  | |\ |   | |   | |  | |_| | | |  | |
+echo |____/  |___| |___| |___| |_| \_|  |_|  |___|  \___/  |_|  |_|
+echo     #   #   #     #     #  ##   #     #   #   # #   #
+echo ##### ##### ##### ##### #   #   #   ##### ##### #   #
+echo.
+echo  silentium - kill switch de voz
 echo.
 
 if not exist "%EXE%" (
