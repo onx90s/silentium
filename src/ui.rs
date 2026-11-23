@@ -22,19 +22,21 @@ const BANNER: [&str; 6] = [
     "╚═════╝  ╚═╝ ╚═════╝ ╚═════╝ ╚═╝  ╚═══╝    ╚═╝    ╚═╝  ╚═════╝  ╚═╝     ╚═╝",
 ];
 
-const MENU: [(&str, &str, &str); 7] = [
+const MENU: [(&str, &str, &str); 8] = [
     ("1", "detectar call", "sockets locais, sem token"),
-    ("2", "ver quem está em voz", "precisa de token"),
-    ("3", "derrubar todos da call", "precisa de token"),
-    ("4", "mutar todos", "precisa de token"),
-    ("5", "ensurdecer todos", "precisa de token"),
-    ("6", "restaurar todos", "desfaz mute e deafen"),
-    ("7", "cortar internet do Discord", "precisa de root"),
+    ("2", "quem está na call", "gateway, aceita token de usuário"),
+    ("3", "sair da call", "derruba a sua sessão de voz"),
+    ("4", "derrubar todos", "token com MOVE_MEMBERS"),
+    ("5", "mutar todos", "token com MUTE_MEMBERS"),
+    ("6", "ensurdecer todos", "token com DEAFEN_MEMBERS"),
+    ("7", "restaurar todos", "desfaz mute e deafen"),
+    ("8", "cortar internet do Discord", "firewall, só o processo dele"),
 ];
 
 pub fn interactive(cli: &Cli) -> Result<()> {
     let color = io::stdout().is_terminal();
     banner(color);
+    ensure_token(cli, color);
     status(cli, color);
 
     if !io::stdin().is_terminal() {
@@ -84,12 +86,13 @@ pub fn interactive(cli: &Cli) -> Result<()> {
             "1" => {
                 crate::print_detect()?;
             }
-            "2" => voice(cli, VoiceCmd::List(TargetArgs::default()))?,
-            "3" => voice(cli, VoiceCmd::Drop(TargetArgs::default()))?,
-            "4" => voice(cli, VoiceCmd::Mute(TargetArgs::default()))?,
-            "5" => voice(cli, VoiceCmd::Deafen(TargetArgs::default()))?,
-            "6" => voice(cli, VoiceCmd::Restore(TargetArgs::default()))?,
-            "7" => cut_discord(color)?,
+            "2" => crate::who(cli)?,
+            "3" => crate::leave(cli)?,
+            "4" => voice(cli, VoiceCmd::Drop(TargetArgs::default()))?,
+            "5" => voice(cli, VoiceCmd::Mute(TargetArgs::default()))?,
+            "6" => voice(cli, VoiceCmd::Deafen(TargetArgs::default()))?,
+            "7" => voice(cli, VoiceCmd::Restore(TargetArgs::default()))?,
+            "8" => cut_discord(color)?,
             "u" | "atualizar" | "update" => {
                 if pending.is_some() {
                     if let Err(err) = crate::update::run(false) {
@@ -117,6 +120,59 @@ pub fn interactive(cli: &Cli) -> Result<()> {
     Ok(())
 }
 
+/// Pede o token na primeira execução, descobre se é de bot ou de usuário e salva.
+fn ensure_token(cli: &Cli, color: bool) {
+    if crate::token_of(cli).is_some() {
+        return;
+    }
+    if !io::stdin().is_terminal() {
+        return;
+    }
+    println!();
+    println!(
+        "  {}nenhum token salvo — cole o seu token de usuário agora{}",
+        dim(color),
+        reset(color)
+    );
+    print!("  {}token:{} ", accent(color), reset(color));
+    let _ = io::stdout().flush();
+
+    let mut linha = String::new();
+    if io::stdin().read_line(&mut linha).is_err() {
+        return;
+    }
+    let token = linha.trim().to_string();
+    if token.is_empty() {
+        println!("  {}seguindo sem token — só detecção e firewall{}", dim(color), reset(color));
+        return;
+    }
+
+    match crate::discord::probe(&token) {
+        Ok((is_user, nome)) => {
+            let cfg = crate::config::Config {
+                token: Some(token),
+                user_token: is_user,
+            };
+            match crate::config::save(&cfg) {
+                Ok(()) => println!(
+                    "  {}token de {} salvo em {}{}",
+                    ok(color),
+                    if is_user { "usuário" } else { "bot" },
+                    crate::config::path().display(),
+                    reset(color)
+                ),
+                Err(err) => println!("  {}não consegui salvar: {err:#}{}", bad(color), reset(color)),
+            }
+            println!("  {}conectado como {nome}{}", ok(color), reset(color));
+        }
+        Err(_) => println!(
+            "  {}token recusado pela API — confira se copiou inteiro{}",
+            bad(color),
+            reset(color)
+        ),
+    }
+}
+
 fn banner(color: bool) {
     println!();
     for line in BANNER {
@@ -136,7 +192,6 @@ fn status(cli: &Cli, color: bool) {
     row(color, "discord", &discord_line(color));
     row(color, "call", &call_line(color));
     row(color, "token", &token_line(cli, color));
-    row(color, "guild", &guild_line(cli, color));
     row(color, "firewall", &privilege_line(color));
 }
 
@@ -203,14 +258,22 @@ fn call_line(color: bool) -> String {
 }
 
 fn token_line(cli: &Cli, color: bool) -> String {
-    match &cli.token {
-        Some(t) => format!(
-            "{} definido ({}…{})",
-            dot(color, true),
-            t.chars().take(4).collect::<String>(),
-            if cli.user_token { ", user token" } else { "" }
-        ),
-        None => format!("{} DISCORD_TOKEN não definido", dot(color, false)),
+    match crate::token_of(cli) {
+        Some(t) => {
+            let cfg = crate::config::load();
+            let tipo = if crate::uses_user_token(cli) || cfg.user_token {
+                ", usuário"
+            } else {
+                ", bot"
+            };
+            format!(
+                "{} definido ({}{})",
+                dot(color, true),
+                t.chars().take(6).collect::<String>(),
+                tipo
+            )
+        }
+        None => format!("{} nenhum token — será pedido abaixo", dot(color, false)),
     }
 }
 

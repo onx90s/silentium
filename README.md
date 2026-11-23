@@ -88,38 +88,52 @@ Assets disponíveis: `silentium-linux-x64`, `silentium-linux-arm64`, `silentium-
 
 ## Primeiro uso
 
-Rodar sem argumento abre a tela inicial: banner, diagnóstico do sistema e menu.
+Rodar sem argumento abre a tela inicial. Ela pede **uma coisa só**: o token. Sem `--guild`, sem `--invite` — o servidor e o canal da call são descobertos na hora.
 
 ```bash
 silentium
 ```
 
 ```
+  ██████╗  ██╗ ██╗     ██████╗ ███╗   ██╗ ████████╗ ██╗ ██╗   ██╗ ███╗   ███╗
+  ... (banner)
+
+  nenhum token salvo — cole o seu token de usuário agora
+  token: MTQ3…                        ← cola e Enter, salvo em ~/.config/silentium
+
   sistema    linux-x86_64 · uid 1000
   discord    ● rodando — pid 4213
-  call       ● ativa — 2 socket(s) de mídia (50002, 50004)
-  token      ● definido (MTQ3…)
-  guild      ● 123456789012345678
+  call       ● ativa — 1 socket de mídia (50002)
+  token      ● definido (MTQ3KZ, usuário)
   firewall   ○ sem privilégio — net só com sudo
 ```
 
-Depois, dois caminhos:
+O tipo é detectado sozinho: se o token funciona com prefixo `Bot` ele é de bot, senão é de usuário. Só um é pedido por execução, e fica gravado (`%APPDATA%\Silentium\config.json` no Windows).
 
-```bash
-# só detecção, zero credencial
-silentium detect
+Menu:
 
-# controle de voz: aponte o convite da call, sem precisar de IDs
-export DISCORD_TOKEN="seu_token_de_bot"
-silentium voice list  --invite discord.gg/abc123
-silentium voice drop  --invite discord.gg/abc123
+```
+ 1  detectar call                sockets locais, sem token
+ 2  quem está na call            gateway, aceita token de usuário
+ 3  sair da call                 derruba a sua sessão de voz
+ 4  derrubar todos               token com MOVE_MEMBERS
+ 5  mutar todos                  token com MUTE_MEMBERS
+ 6  ensurdecer todos             token com DEAFEN_MEMBERS
+ 7  restaurar todos              desfaz mute e deafen
+ 8  cortar internet do Discord   firewall, só o processo dele
 ```
 
-`--invite` resolve o convite em guild + canal automaticamente. IDs explícitos também valem:
+Equivalente na linha de comando:
 
 ```bash
-silentium voice mute --guild 123456789012345678 --channel 987654321098765432
+silentium detect          # zero credencial
+silentium voice who       # quem está em voz (gateway)
+silentium voice leave     # sai da call em que você está
+silentium voice drop      # derruba todos (token com MOVE_MEMBERS)
+silentium net auto --seconds 30
 ```
+
+Nenhum comando exige `--guild`: quando ele falta, o escopo vem da call ativa via gateway. `--invite` e `--guild` continuam aceitos para apontar um servidor específico.
 
 ## Comandos
 
@@ -129,7 +143,7 @@ silentium voice mute --guild 123456789012345678 --channel 987654321098765432
 |---|---|---|
 | `--token` | `$DISCORD_TOKEN` | token de bot, ou de usuário com `--user-token` |
 | `--user-token` | — | trata o token como de usuário (sem prefixo `Bot `) |
-| `--guild` | `$GUILD_ID` | ID do servidor |
+| `--guild` | `$GUILD_ID` | ID do servidor (opcional — vem da call ativa) |
 | `--delay-ms` | `150` | intervalo entre chamadas REST |
 | `--dry-run` | — | mostra o que faria, sem executar |
 

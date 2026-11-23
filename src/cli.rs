@@ -74,6 +74,10 @@ pub struct TargetArgs {
 
 #[derive(Subcommand, Debug, Clone)]
 pub enum VoiceCmd {
+    /// Quem está em voz agora (gateway; funciona com token de usuário).
+    Who,
+    /// Sai da call em que você está.
+    Leave,
     /// Quem está em voz agora.
     List(TargetArgs),
     /// Desconecta da voz (channel_id: null).

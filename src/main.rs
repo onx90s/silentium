@@ -1,5 +1,7 @@
 mod cli;
+mod config;
 mod detect;
+mod gateway;
 mod discord;
 mod net;
 mod ui;
@@ -61,6 +63,44 @@ fn run() -> Result<()> {
 }
 
 /// Imprime o estado da call olhando só os sockets locais do Discord.
+/// Lista quem está em voz usando o gateway (aceita token de usuário).
+pub(crate) fn who(cli: &Cli) -> Result<()> {
+    let token = token_of(cli).context("sem token")?;
+    let snap = gateway::snapshot(&token, uses_user_token(cli), 6)?;
+    if snap.users.is_empty() {
+        println!("ninguém em voz nas suas calls");
+        return Ok(());
+    }
+    let mut atual = String::new();
+    for user in &snap.users {
+        if user.guild_id != atual {
+            let nome = snap
+                .guilds
+                .iter()
+                .find(|(id, _)| id == &user.guild_id)
+                .map(|(_, n)| n.clone())
+                .unwrap_or_else(|| user.guild_id.clone());
+            println!("\n{nome}  ({})", user.guild_id);
+            atual = user.guild_id.clone();
+        }
+        let marca = if user.user_id == snap.me { "  ← você" } else { "" };
+        println!("  {:<20} {:<22} canal {}{}", user.user_id, user.name, user.channel_id, marca);
+    }
+    Ok(())
+}
+
+/// Sai da própria call via gateway.
+pub(crate) fn leave(cli: &Cli) -> Result<()> {
+    let token = token_of(cli).context("sem token")?;
+    let (guild, channel) = scope_from_call(cli)?;
+    gateway::leave(&token, uses_user_token(cli), &guild, 8)?;
+    println!(
+        "saí da call (guild {guild}, canal {})",
+        channel.unwrap_or_default()
+    );
+    Ok(())
+}
+
 pub(crate) fn print_detect() -> Result<()> {
     let peers = detect::voice_peers()?;
     let voice: Vec<_> = peers.iter().filter(|p| p.is_voice()).collect();
@@ -69,24 +109,60 @@ pub(crate) fn print_detect() -> Result<()> {
         if !peers.is_empty() {
             println!("sockets do Discord fora da faixa de voz (gateway/QUIC):");
             for peer in &peers {
-                println!("  {}  pid={} ({})", peer.endpoint(), peer.pid, peer.process);
+                println!(
+                    "  {}  pid={} ({})  local={}  {} kbps",
+                    peer.endpoint(),
+                    peer.pid,
+                    peer.process,
+                    peer.local_port,
+                    peer.rate_kbps.unwrap_or(0)
+                );
             }
         }
     } else {
         println!("call ativa, {} socket(s) de mídia:", voice.len());
         for peer in voice {
-            println!("  {}  pid={} ({})", peer.endpoint(), peer.pid, peer.process);
+            println!(
+                "  {}  pid={} ({})  local={}  {} kbps  confiança={}",
+                peer.endpoint(),
+                peer.pid,
+                peer.process,
+                peer.local_port,
+                peer.rate_kbps.unwrap_or(0),
+                peer.confidence()
+            );
         }
     }
     Ok(())
 }
 
-fn build_api(cli: &Cli) -> Result<Api> {
-    let token = cli
-        .token
+pub(crate) fn uses_user_token(cli: &Cli) -> bool {
+    cli.user_token || config::load().user_token
+}
+
+pub(crate) fn token_of(cli: &Cli) -> Option<String> {
+    cli.token
         .clone()
-        .context("faltou --token ou DISCORD_TOKEN")?;
-    Ok(Api::new(token, cli.dry_run, cli.delay_ms, cli.user_token))
+        .or_else(|| std::env::var("DISCORD_TOKEN").ok())
+        .or_else(|| config::load().token)
+}
+
+fn build_api(cli: &Cli) -> Result<Api> {
+    let token = token_of(cli)
+        .context("sem token — rode `silentium` e cole o seu token na primeira pergunta")?;
+    Ok(Api::new(token, cli.dry_run, cli.delay_ms, uses_user_token(cli)))
+}
+
+/// Guild/canal da call em que a conta está, descobertos pelo gateway.
+pub(crate) fn scope_from_call(cli: &Cli) -> Result<(String, Option<String>)> {
+    let token = token_of(cli).context("sem token para ler a call")?;
+    let snap = gateway::snapshot(&token, uses_user_token(cli), 6)?;
+    let mine = snap
+        .users
+        .iter()
+        .find(|u| u.user_id == snap.me)
+        .with_context(|| "a conta não está em nenhuma call de servidor")?;
+    Ok((mine.guild_id.clone(), Some(mine.channel_id.clone())))
 }
 
 fn resolve_scope(api: &Api, cli: &Cli, target: &TargetArgs) -> Result<(String, Option<String>)> {
@@ -101,8 +177,10 @@ fn resolve_scope(api: &Api, cli: &Cli, target: &TargetArgs) -> Result<(String, O
             .or_else(|| resolved.channel.map(|c| c.id));
         return Ok((guild.id, channel));
     }
-    let guild = cli.guild.clone().context("faltou --guild ou um --invite")?;
-    Ok((guild, target.channel.clone()))
+    if let Some(guild) = cli.guild.clone() {
+        return Ok((guild, target.channel.clone()));
+    }
+    scope_from_call(cli)
 }
 
 fn collect_targets(
@@ -172,6 +250,12 @@ pub(crate) fn voice_dispatch(cli: &Cli, cmd: &VoiceCmd) -> Result<()> {
         return run_guard(&api, cli, target, action, *interval);
     }
 
+    match cmd {
+        VoiceCmd::Who => return who(cli),
+        VoiceCmd::Leave => return leave(cli),
+        _ => {}
+    }
+
     let (target, action) = match cmd {
         VoiceCmd::List(t) => (t, "list"),
         VoiceCmd::Drop(t) => (t, "drop"),
@@ -180,7 +264,7 @@ pub(crate) fn voice_dispatch(cli: &Cli, cmd: &VoiceCmd) -> Result<()> {
         VoiceCmd::Deafen(t) => (t, "deafen"),
         VoiceCmd::Undeafen(t) => (t, "undeafen"),
         VoiceCmd::Restore(t) => (t, "restore"),
-        VoiceCmd::Guard { .. } => unreachable!(),
+        VoiceCmd::Guard { .. } | VoiceCmd::Who | VoiceCmd::Leave => unreachable!(),
     };
 
     let (guild, channel) = resolve_scope(&api, cli, target)?;

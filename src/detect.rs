@@ -9,11 +9,31 @@ pub struct Peer {
     pub port: u16,
     pub pid: u32,
     pub process: String,
+    /// Porta local do socket — no Windows é o sinal mais confiável.
+    pub local_port: u16,
+    /// Taxa medida em kbps nos dois sentidos (quando o sistema informa).
+    pub rate_kbps: Option<u32>,
 }
 
 impl Peer {
+    /// Call de voz = porta remota na faixa de mídia, OU porta local na faixa,
+    /// OU tráfego contínuo suficiente (cobre mídia caindo no 443).
     pub fn is_voice(&self) -> bool {
-        (VOICE_PORT_START..=VOICE_PORT_END).contains(&self.port)
+        let faixa = VOICE_PORT_START..=VOICE_PORT_END;
+        faixa.contains(&self.port)
+            || faixa.contains(&self.local_port)
+            || self.rate_kbps.map(|rate| rate >= 20).unwrap_or(false)
+    }
+
+    pub fn confidence(&self) -> &'static str {
+        let faixa = VOICE_PORT_START..=VOICE_PORT_END;
+        if faixa.contains(&self.port) || faixa.contains(&self.local_port) {
+            "alta"
+        } else if self.rate_kbps.unwrap_or(0) >= 20 {
+            "média"
+        } else {
+            "baixa"
+        }
     }
 }
 
@@ -81,21 +101,68 @@ pub fn voice_peers() -> Result<Vec<Peer>> {
 mod linux {
     use super::Peer;
     use anyhow::{bail, Context, Result};
+    use std::collections::HashMap;
     use std::process::Command;
+    use std::thread::sleep;
+    use std::time::Duration;
+
+    struct Raw {
+        local: String,
+        peer: String,
+        local_port: u16,
+        pid: u32,
+        rx: u64,
+        tx: u64,
+    }
 
     pub fn voice_peers() -> Result<Vec<Peer>> {
+        let first = snapshot()?;
+        if first.is_empty() {
+            return Ok(Vec::new());
+        }
+        sleep(Duration::from_millis(900));
+        let second = snapshot()?;
+
+        let antes: HashMap<(String, String), (u64, u64)> = first
+            .iter()
+            .map(|raw| ((raw.local.clone(), raw.peer.clone()), (raw.rx, raw.tx)))
+            .collect();
+
+        let mut peers = Vec::new();
+        for raw in &second {
+            let Some((rx0, tx0)) = antes.get(&(raw.local.clone(), raw.peer.clone())) else {
+                continue;
+            };
+            let delta = (raw.rx.saturating_sub(*rx0) + raw.tx.saturating_sub(*tx0)) as f64 * 8.0;
+            let kbps = (delta / 0.9 / 1000.0) as u32;
+            let (ip, port) = split_addr(&raw.peer);
+            peers.push(Peer {
+                ip,
+                port,
+                pid: raw.pid,
+                process: "Discord".to_string(),
+                local_port: raw.local_port,
+                rate_kbps: Some(kbps),
+            });
+        }
+        peers.sort_by(|a, b| a.endpoint().cmp(&b.endpoint()));
+        peers.dedup_by(|a, b| a.endpoint() == b.endpoint());
+        Ok(peers)
+    }
+
+    fn snapshot() -> Result<Vec<Raw>> {
         let out = Command::new("ss")
-            .args(["-unp"])
+            .args(["-unpi"])
             .output()
             .context("ss: iproute2 instalado?")?;
         if !out.status.success() {
-            bail!("ss -unp falhou");
+            bail!("ss -unpi falhou");
         }
         Ok(parse(&String::from_utf8_lossy(&out.stdout)))
     }
 
-    fn parse(text: &str) -> Vec<Peer> {
-        let mut peers = Vec::new();
+    fn parse(text: &str) -> Vec<Raw> {
+        let mut out = Vec::new();
         for line in text.lines() {
             let cols: Vec<&str> = line.split_whitespace().collect();
             if cols.len() < 4 {
@@ -108,26 +175,33 @@ mod linux {
                 continue;
             }
             let peer = cols[3];
-            if peer.starts_with("*") || peer.starts_with("0.0.0.0") || peer.starts_with("[::]") {
+            if peer.starts_with('*') || peer.starts_with("[::]") || peer.starts_with("0.0.0.0") {
                 continue;
             }
-            let (ip, port) = split_addr(peer);
+            let (_, local_port) = split_addr(cols[2]);
             let pid = owner
                 .split("pid=")
                 .nth(1)
                 .and_then(|rest| rest.split([',', ')']).next())
                 .and_then(|digits| digits.parse::<u32>().ok())
                 .unwrap_or(0);
-            peers.push(Peer {
-                ip,
-                port,
+            out.push(Raw {
+                local: cols[2].to_string(),
+                peer: peer.to_string(),
+                local_port,
                 pid,
-                process: "Discord".to_string(),
+                rx: stat(line, "bytes_received:"),
+                tx: stat(line, "bytes_sent:"),
             });
         }
-        peers.sort_by_key(|a| a.endpoint());
-        peers.dedup_by(|a, b| a.endpoint() == b.endpoint());
-        peers
+        out
+    }
+
+    fn stat(line: &str, key: &str) -> u64 {
+        line.split_whitespace()
+            .find_map(|token| token.strip_prefix(key))
+            .and_then(|value| value.trim_end_matches(',').parse::<u64>().ok())
+            .unwrap_or(0)
     }
 
     fn split_addr(raw: &str) -> (String, u16) {
@@ -190,11 +264,26 @@ mod windows {
             if !discord_pids.contains(&pid) {
                 continue;
             }
+            let (_, local_port) = match cols[1].rsplit_once(':') {
+                Some((host, port)) => (host.to_string(), port.parse::<u16>().unwrap_or(0)),
+                None => (String::new(), 0),
+            };
             let foreign = cols[2];
-            if foreign.contains(":*")
+            let sem_peer = foreign.contains(":*")
                 || foreign.starts_with("0.0.0.0")
-                || foreign.starts_with('[') && foreign.contains("]:*")
-            {
+                || foreign.starts_with('[') && foreign.contains("]:*");
+            if sem_peer {
+                if local_port == 0 {
+                    continue;
+                }
+                peers.push(Peer {
+                    ip: String::new(),
+                    port: 0,
+                    pid,
+                    process: "Discord".to_string(),
+                    local_port,
+                    rate_kbps: None,
+                });
                 continue;
             }
             let (ip, port) = match foreign.rsplit_once(':') {
@@ -212,6 +301,8 @@ mod windows {
                 port,
                 pid,
                 process: "Discord".to_string(),
+                local_port,
+                rate_kbps: None,
             });
         }
         peers.sort_by(|a, b| a.endpoint().cmp(&b.endpoint()));
@@ -230,6 +321,8 @@ mod tests {
             port,
             pid: 1,
             process: "Discord".to_string(),
+            local_port: 0,
+            rate_kbps: None,
         }
     }
 
@@ -239,6 +332,24 @@ mod tests {
         assert!(peer(65535).is_voice());
         assert!(!peer(443).is_voice());
         assert!(!peer(49999).is_voice());
+    }
+
+    #[test]
+    fn porta_local_na_faixa_conta_como_call() {
+        let mut p = peer(443);
+        p.local_port = 50003;
+        assert!(p.is_voice());
+    }
+
+    #[test]
+    fn trafego_continuo_conta_como_call() {
+        let mut p = peer(443);
+        p.rate_kbps = Some(42);
+        assert!(p.is_voice());
+        p.rate_kbps = Some(2);
+        assert!(!p.is_voice());
+        p.rate_kbps = Some(15);
+        assert!(!p.is_voice());
     }
 
     #[test]
