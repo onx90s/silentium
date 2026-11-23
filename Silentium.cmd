@@ -4,9 +4,9 @@ chcp 65001 >nul
 title Silentium
 cd /d "%~dp0"
 
-set "EXE=%~dp0target\release\silentium.exe"
-if not exist "%EXE%" set "EXE=%~dp0silentium.exe"
-set "CFG=%APPDATA%\Silentium\config.json"
+set "DEST=%LOCALAPPDATA%\Silentium"
+set "EXE=%DEST%\silentium.exe"
+set "URL=https://github.com/onx90s/silentium/releases/latest/download/silentium-windows-x64.zip"
 
 echo.
 echo ██████╗  ██╗ ██╗     ██████╗ ███╗   ██╗ ████████╗ ██╗ ██╗   ██╗ ███╗   ███╗
@@ -19,39 +19,27 @@ echo.
 echo   kill switch de voz para Discord
 echo.
 
+if exist "%~dp0silentium.exe" set "EXE=%~dp0silentium.exe"
+if exist "%EXE%" goto :ask
+
+echo   [*] primeira execucao: baixando o binario (~4 MB)...
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+  "$ErrorActionPreference='Stop'; $d='%DEST%'; New-Item -ItemType Directory -Force -Path $d | Out-Null; $z=Join-Path $d 'silentium.zip'; Invoke-WebRequest -UseBasicParsing -Uri '%URL%' -OutFile $z; Expand-Archive -Force -Path $z -DestinationPath $d; Remove-Item $z -Force; Write-Host ('   [ok] instalado em ' + $d)"
 if not exist "%EXE%" (
-    where cargo >nul 2>&1
-    if errorlevel 1 (
-        echo   [x] silentium.exe nao encontrado.
-        echo       rode: cargo build --release
-        echo.
-        pause
-        exit /b 1
-    )
-    echo   [*] compilando pela primeira vez, ~1 minuto...
-    cargo build --release
-    if errorlevel 1 (
-        echo.
-        pause
-        exit /b 1
-    )
+    echo   [x] download falhou. Se tiver Rust instalado, compile com: cargo build --release
+    echo.
+    pause
+    exit /b 1
 )
 
-if exist "%CFG%" (
-    for /f "tokens=2 delims=:" %%A in ('findstr /c:"\"token\"" "%CFG%"') do set "SALVO=%%A"
-    set "SALVO=!SALVO: =!"
-    set "SALVO=!SALVO:\"=!"
-    set "SALVO=!SALVO:,=!"
-    if defined SALVO (
-        echo   token salvo encontrado ^(...!SALVO:~-6!^)
-        echo.
-    )
+:ask
+if exist "%APPDATA%\Silentium\config.json" (
+    echo   [*] token ja salvo em %APPDATA%\Silentium\config.json
+    echo.
 )
-
 set "TOKEN="
-set /p TOKEN=  cole seu token (Enter usa o salvo): 
+set /p TOKEN=  seu token (Enter usa o salvo): 
 if not defined TOKEN goto :run
-
 set "DISCORD_TOKEN=!TOKEN!"
 echo.
 
