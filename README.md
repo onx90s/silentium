@@ -69,6 +69,12 @@ npx @onxdev/silentium
 
 > O nome `silentium` no npm pertence a outro projeto (uma solução de mensageria). Este CLI é publicado sob o escopo `@onx90s`, e o comando continua sendo `silentium`.
 
+### Script (baixa o binário, sem compilar)
+
+```bash
+./silentium.sh            # Linux: baixa o release para ~/.local/bin e roda
+```
+
 ### Cargo
 
 ```bash
