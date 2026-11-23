@@ -153,6 +153,20 @@ impl Api {
         }
     }
 
+    pub fn guilds(&self) -> Result<Vec<(String, String)>> {
+        let raw = self.raw("GET", "/users/@me/guilds", None)?;
+        let list = raw.as_array().cloned().unwrap_or_default();
+        Ok(list
+            .iter()
+            .map(|g| {
+                (
+                    g["id"].as_str().unwrap_or_default().to_string(),
+                    g["name"].as_str().unwrap_or_default().to_string(),
+                )
+            })
+            .collect())
+    }
+
     pub fn me(&self) -> Result<Me> {
         let raw = self.raw("GET", "/users/@me", None)?;
         serde_json::from_value(raw).context("payload de /users/@me inesperado")

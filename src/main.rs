@@ -44,6 +44,7 @@ fn run() -> Result<()> {
             Ok(())
         }
         Some(Cmd::Detect) => print_detect(),
+        Some(Cmd::Doctor) => doctor(&cli),
         Some(Cmd::Resolve { invite }) => {
             let api = build_api(&cli)?;
             let resolved = api.resolve_invite(&invite)?;
@@ -65,6 +66,12 @@ fn run() -> Result<()> {
 /// Imprime o estado da call olhando só os sockets locais do Discord.
 /// Lista quem está em voz usando o gateway (aceita token de usuário).
 pub(crate) fn who(cli: &Cli) -> Result<()> {
+    if !gateway_allowed(cli) {
+        bail!(
+            "quem está na call precisa de token de bot — o gateway invalida token de usuário.\n\
+             use `silentium detect` para ver a call e `silentium net auto` para cortar."
+        );
+    }
     let token = token_of(cli).context("sem token")?;
     let snap = gateway::snapshot(&token, uses_user_token(cli), 6)?;
     if snap.users.is_empty() {
@@ -98,6 +105,12 @@ pub(crate) fn who(cli: &Cli) -> Result<()> {
 
 /// Sai da própria call via gateway.
 pub(crate) fn leave(cli: &Cli) -> Result<()> {
+    if !gateway_allowed(cli) {
+        bail!(
+            "sair da call pelo gateway precisa de token de bot.\n\
+             com token de usuário: `silentium net auto --seconds 20` derruba a call na hora."
+        );
+    }
     let token = token_of(cli).context("sem token")?;
     let (guild, channel) = scope_from_call(cli)?;
     gateway::leave(&token, uses_user_token(cli), &guild, 8)?;
@@ -165,8 +178,112 @@ fn build_api(cli: &Cli) -> Result<Api> {
     ))
 }
 
+/// Diagnóstico: o que o token atual consegue e o que não consegue.
+pub(crate) fn doctor(cli: &Cli) -> Result<()> {
+    println!("diagnóstico silentium v{}", env!("CARGO_PKG_VERSION"));
+
+    let peers = detect::voice_peers().unwrap_or_default();
+    let voz: Vec<_> = peers.iter().filter(|p| p.is_voice()).collect();
+    println!(
+        "  detecção local   {}",
+        if voz.is_empty() {
+            "nenhuma call ativa".to_string()
+        } else {
+            format!("{} socket(s) de mídia", voz.len())
+        }
+    );
+
+    let Some(token) = token_of(cli) else {
+        println!("  token            nenhum — rode `silentium` e cole o token");
+        return Ok(());
+    };
+
+    let api = Api::new(token.clone(), false, cli.delay_ms, uses_user_token(cli));
+    match api.me() {
+        Ok(me) => println!("  identidade       {} ({})", me.username, me.id),
+        Err(err) => {
+            println!("  identidade       falhou: {err:#}");
+            return Ok(());
+        }
+    }
+    let tipo = if api.is_user_token() {
+        "usuário"
+    } else {
+        "bot"
+    };
+    println!("  tipo de token    {tipo}");
+
+    match api.guilds() {
+        Ok(guilds) => {
+            println!("  servidores       {} visíveis", guilds.len());
+            if let Some((id, nome)) = guilds.first() {
+                match api.members(id) {
+                    Ok(membros) => println!("  listar membros   ok ({} em {nome})", membros.len()),
+                    Err(err) => println!("  listar membros   falhou: {err:#}"),
+                }
+            }
+        }
+        Err(err) => println!("  servidores       falhou: {err:#}"),
+    }
+
+    println!(
+        "  gateway          {}",
+        if gateway_allowed(cli) {
+            "liberado (lista participantes)"
+        } else {
+            "bloqueado para token de usuário"
+        }
+    );
+    println!(
+        "  corte de rede    {}",
+        if cfg!(unix) {
+            if is_root_hint() {
+                "disponível"
+            } else {
+                "precisa de sudo"
+            }
+        } else {
+            "precisa de Administrador"
+        }
+    );
+    Ok(())
+}
+
+fn is_root_hint() -> bool {
+    #[cfg(unix)]
+    {
+        std::process::Command::new("id")
+            .arg("-u")
+            .output()
+            .ok()
+            .and_then(|o| {
+                String::from_utf8_lossy(&o.stdout)
+                    .trim()
+                    .parse::<u32>()
+                    .ok()
+            })
+            .map(|uid| uid == 0)
+            .unwrap_or(false)
+    }
+    #[cfg(not(unix))]
+    {
+        false
+    }
+}
+
 /// Guild/canal da call em que a conta está, descobertos pelo gateway.
+/// Gateway com token de usuário derruba a sessão do cliente — só com `--gateway`.
+pub(crate) fn gateway_allowed(cli: &Cli) -> bool {
+    !uses_user_token(cli) || cli.gateway
+}
+
 pub(crate) fn scope_from_call(cli: &Cli) -> Result<(String, Option<String>)> {
+    if !gateway_allowed(cli) {
+        bail!(
+            "listar participantes precisa de token de bot (o gateway invalida token de usuário).\n\
+             com token de usuário use: silentium detect · silentium net auto"
+        );
+    }
     let token = token_of(cli).context("sem token para ler a call")?;
     let snap = gateway::snapshot(&token, uses_user_token(cli), 6)?;
     let mine = snap

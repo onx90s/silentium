@@ -111,6 +111,7 @@ pub fn interactive(cli: &Cli) -> Result<()> {
                     );
                 }
             }
+            "d" | "doctor" | "diag" => crate::doctor(cli)?,
             "?" | "h" | "help" => help_hint(color),
             other => println!(
                 "{}opção desconhecida: {}{}",

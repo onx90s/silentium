@@ -16,6 +16,10 @@ pub struct Cli {
     #[arg(long, env = "DISCORD_TOKEN", global = true)]
     pub token: Option<String>,
 
+    /// Usa o gateway mesmo com token de usuário (invalida a sessão do cliente).
+    #[arg(long, global = true)]
+    pub gateway: bool,
+
     /// Trata o token como token de usuário (sem prefixo "Bot ").
     #[arg(long, global = true)]
     pub user_token: bool,
@@ -45,6 +49,8 @@ pub enum Cmd {
     Resolve { invite: String },
     /// Detecta a call ativa olhando os sockets locais do Discord. Não usa API.
     Detect,
+    /// Mostra o que o token atual consegue fazer, item por item.
+    Doctor,
     /// Verifica e instala a atualização mais recente publicada no GitHub.
     Update {
         /// Só informa se existe versão nova, sem instalar.
