@@ -35,8 +35,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "postinstall": "node npm/install.js",
-    "prepublishOnly": "node -e \"const l=require('./npm/lib.js');console.log('publicando v'+l.packageVersion())\""
+    "setup": "node npm/install.js"
   },
   "engines": {
     "node": ">=18"
