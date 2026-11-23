@@ -11,14 +11,14 @@
 Kill switch de voz para Discord. Detecta a call pelos sockets locais do cliente e corta, limita, muta ou derruba — sem plugin, sem injeção.
 
 [![release](https://img.shields.io/github/v/release/onx90s/silentium?color=6c8cff)](https://github.com/onx90s/silentium/releases)
-[![npm](https://img.shields.io/npm/v/@onx90s/silentium?label=npm&color=cb3837)](https://www.npmjs.com/package/@onx90s/silentium)
+[![npm](https://img.shields.io/npm/v/@onxdev/silentium?label=npm&color=cb3837)](https://www.npmjs.com/package/@onxdev/silentium)
 [![ci](https://img.shields.io/github/actions/workflow/status/onx90s/silentium/ci.yml?label=ci)](https://github.com/onx90s/silentium/actions)
 [![license](https://img.shields.io/badge/license-MIT-8fbcbb)](#licença)
 
 ## Instalar
 
 ```bash
-npm install -g @onx90s/silentium     # baixa o binário do release
+npm install -g @onxdev/silentium     # baixa o binário do release
 cargo install --git https://github.com/onx90s/silentium --locked
 ```
 
