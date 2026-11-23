@@ -1,14 +1,13 @@
 # Silentium
 
 ```
-██████╗  ██╗ ██╗      ██████╗  ██╗   ██╗  ████████╗ ██╗ ██╗   ██╗ ███╗   ███╗
-██╔═══╝  ██║ ██║      ██╔═══╝  ███╗  ██║  ╚══██╔══╝ ██║ ██║   ██║ ████╗ ████║
-██████╗  ██║ ██║      █████╗   ██╔██╗ ██║    ██║    ██║ ██║   ██║ ██╔████╔██║
-╚═══██║  ██║ ██║      ██╔══╝   ██║╚██╗██║    ██║    ██║ ██║   ██║ ██║╚██╔╝██║
-██████║  ██║ ██████╗  ██████╗  ██║ ╚████║    ██║    ██║ ╚██████╔╝ ██║ ╚═╝ ██║
-╚═════╝  ╚═╝ ╚═════╝  ╚═════╝  ╚═╝  ╚═══╝    ╚═╝    ╚═╝  ╚═════╝  ╚═╝     ╚═╝
-```
-Kill switch de voz para Discord. Detecta a call pelos sockets locais do cliente e corta, limita, muta ou derruba — sem plugin, sem injeção.
+██████╗  ██╗ ██╗     ██████╗ ███╗   ███╗ ████████╗ ██╗ ██╗   ██╗ ███╗   ███╗
+██╔═══╝  ██║ ██║     ██╔═══╝ ████╗ ████║ ╚══██╔══╝ ██║ ██║   ██║ ████╗ ████║
+██████╗  ██║ ██║     █████╗  ██╔████╔██║    ██║    ██║ ██║   ██║ ██╔████╔██║
+╚═══██║  ██║ ██║     ██╔══╝  ██║╚██╔╝██║    ██║    ██║ ██║   ██║ ██║╚██╔╝██║
+██████║  ██║ ██████╗ ██████╗ ██║ ╚═╝ ██║    ██║    ██║ ╚██████╔╝ ██║ ╚═╝ ██║
+╚═════╝  ╚═╝ ╚═════╝ ╚═════╝ ╚═╝     ╚═╝    ╚═╝    ╚═╝  ╚═════╝  ╚═╝     ╚═╝
+```Kill switch de voz para Discord. Detecta a call pelos sockets locais do cliente e corta, limita, muta ou derruba — sem plugin, sem injeção.
 
 [![release](https://img.shields.io/github/v/release/onx90s/silentium?color=6c8cff)](https://github.com/onx90s/silentium/releases)
 [![npm](https://img.shields.io/npm/v/@onxdev/silentium?label=npm&color=cb3837)](https://www.npmjs.com/package/@onxdev/silentium)
