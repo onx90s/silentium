@@ -10,6 +10,23 @@ const API: &str = "https://discord.com/api/v10";
 pub struct Me {
     pub id: String,
     pub username: String,
+    #[serde(default)]
+    pub global_name: Option<String>,
+    #[serde(default)]
+    pub discriminator: Option<String>,
+}
+
+impl Me {
+    /// Nome exibido: global name quando existe; username#discriminator no legado.
+    pub fn display_name(&self) -> String {
+        if let Some(global) = self.global_name.as_deref().filter(|name| !name.is_empty()) {
+            return global.to_string();
+        }
+        match self.discriminator.as_deref() {
+            Some(tag) if tag != "0" && !tag.is_empty() => format!("{}#{tag}", self.username),
+            _ => self.username.clone(),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -17,7 +34,23 @@ pub struct User {
     pub id: String,
     pub username: String,
     #[serde(default)]
+    pub global_name: Option<String>,
+    #[serde(default)]
+    pub discriminator: Option<String>,
+    #[serde(default)]
     pub bot: bool,
+}
+
+impl User {
+    pub fn display_name(&self) -> String {
+        if let Some(global) = self.global_name.as_deref().filter(|name| !name.is_empty()) {
+            return global.to_string();
+        }
+        match self.discriminator.as_deref() {
+            Some(tag) if tag != "0" && !tag.is_empty() => format!("{}#{tag}", self.username),
+            _ => self.username.clone(),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -104,7 +137,7 @@ impl Api {
 
     fn auth(&self, req: ureq::Request) -> ureq::Request {
         req.set("Authorization", &self.header())
-            .set("User-Agent", "Silentium/0.1 (local)")
+            .set("User-Agent", &user_agent(self.user_token.get()))
             .set("Content-Type", "application/json")
     }
 
@@ -208,7 +241,7 @@ impl Api {
             .agent
             .get(&url)
             .set("Authorization", &self.header())
-            .set("User-Agent", "Silentium/0.1 (local)");
+            .set("User-Agent", &user_agent(self.user_token.get()));
         match req.call() {
             Ok(resp) => {
                 let payload = resp.into_json::<Value>().unwrap_or(Value::Null);
@@ -265,19 +298,20 @@ pub fn invite_code(raw: &str) -> Result<String> {
 }
 
 /// Descobre se o token é de bot ou de usuário, e devolve o nome da conta.
-pub fn probe(token: &str) -> Result<(bool, String)> {
-    if let Ok(name) = probe_with(token, true) {
-        return Ok((false, name));
+pub fn probe(token: &str) -> Result<(bool, Me)> {
+    let token = normalize_token(token)?;
+    if let Ok(me) = probe_with(&token, true) {
+        return Ok((true, me));
     }
-    let name = probe_with(token, false).context("token recusado pela API")?;
-    Ok((true, name))
+    let me = probe_with(&token, false).context("token recusado pela API")?;
+    Ok((false, me))
 }
 
-fn probe_with(token: &str, bot: bool) -> Result<String> {
-    let auth = if bot {
-        format!("Bot {token}")
-    } else {
+fn probe_with(token: &str, user_token: bool) -> Result<Me> {
+    let auth = if user_token {
         token.to_string()
+    } else {
+        format!("Bot {token}")
     };
     let agent = ureq::AgentBuilder::new()
         .timeout_connect(Duration::from_secs(8))
@@ -286,16 +320,48 @@ fn probe_with(token: &str, bot: bool) -> Result<String> {
     let resp = agent
         .get(&format!("{API}/users/@me"))
         .set("Authorization", &auth)
-        .set("User-Agent", "Silentium")
+        .set("User-Agent", &user_agent(user_token))
         .call()
         .map_err(|err| anyhow!("{err}"))?;
-    let value: Value = resp.into_json().context("resposta inesperada")?;
-    let name = value
-        .get("username")
-        .and_then(Value::as_str)
-        .unwrap_or("conta")
-        .to_string();
-    Ok(name)
+    resp.into_json::<Me>().context("resposta inesperada")
+}
+
+/// UA válido para cada tipo de autenticação. Bots precisam conter "DiscordBot".
+pub fn user_agent(user_token: bool) -> String {
+    if user_token {
+        let os = match std::env::consts::OS {
+            "windows" => "Windows NT 10.0; Win64; x64",
+            "macos" => "Macintosh; Intel Mac OS X 10_15_7",
+            _ => "X11; Linux x86_64",
+        };
+        format!(
+            "Mozilla/5.0 ({os}) AppleWebKit/537.36 (KHTML, like Gecko) discord/0.0.0 Chrome/120.0.0.0 Electron/28.0.0 Safari/537.36"
+        )
+    } else {
+        format!(
+            "DiscordBot (https://github.com/onx90s/silentium, {})",
+            env!("CARGO_PKG_VERSION")
+        )
+    }
+}
+
+/// Aceita o token cru ou com prefixo/aspas colados por engano.
+pub fn normalize_token(raw: &str) -> Result<String> {
+    let mut token = raw.trim().trim_matches(|c| c == '"' || c == '\'').trim();
+    for prefix in ["Bot ", "Bearer "] {
+        if token
+            .get(..prefix.len())
+            .map(|start| start.eq_ignore_ascii_case(prefix))
+            .unwrap_or(false)
+        {
+            token = token[prefix.len()..].trim();
+            break;
+        }
+    }
+    if token.len() < 40 || token.contains(char::is_whitespace) {
+        bail!("token incompleto — copie o valor inteiro, sem aspas");
+    }
+    Ok(token.to_string())
 }
 
 #[cfg(test)]
@@ -342,5 +408,58 @@ mod tests {
     fn acao_invalida_falha() {
         assert!(Api::body_for("explodir").is_err());
         assert!(Api::body_for("drop").is_ok());
+    }
+}
+
+#[cfg(test)]
+mod identity_tests {
+    use super::{normalize_token, Me, User};
+
+    #[test]
+    fn nome_de_exibicao_prioriza_global_name() {
+        let me: Me = serde_json::from_value(serde_json::json!({
+            "id": "1", "username": "antigo", "global_name": "Nome Correto", "discriminator": "0"
+        }))
+        .unwrap();
+        assert_eq!(me.display_name(), "Nome Correto");
+    }
+
+    #[test]
+    fn discriminador_legado_e_preservado() {
+        let me: Me = serde_json::from_value(serde_json::json!({
+            "id": "1", "username": "antigo", "global_name": null, "discriminator": "1234"
+        }))
+        .unwrap();
+        assert_eq!(me.display_name(), "antigo#1234");
+    }
+
+    #[test]
+    fn usuario_tambem_usa_global_name() {
+        let user: User = serde_json::from_value(serde_json::json!({
+            "id": "1", "username": "antigo", "global_name": "Visível", "discriminator": "0"
+        }))
+        .unwrap();
+        assert_eq!(user.display_name(), "Visível");
+    }
+
+    #[test]
+    fn normaliza_prefixo_e_aspas() {
+        let token = "a".repeat(48);
+        let raw = format!("  \"Bot {token}\"  ");
+        assert_eq!(normalize_token(&raw).unwrap(), token);
+        assert_eq!(
+            normalize_token(&format!("'Bearer {token}'")).unwrap(),
+            token
+        );
+    }
+
+    #[test]
+    fn rejeita_token_curto() {
+        assert!(normalize_token("abc").is_err());
+    }
+
+    #[test]
+    fn user_agent_de_bot_contem_discordbot() {
+        assert!(super::user_agent(false).contains("DiscordBot"));
     }
 }

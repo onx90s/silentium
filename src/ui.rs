@@ -3,6 +3,7 @@ use crate::cli::Cli;
 use crate::detect;
 use anyhow::Result;
 use std::io::{self, IsTerminal, Write};
+#[cfg(unix)]
 use std::process::Command;
 
 const ACCENT: &str = "\x1b[38;5;111m";
@@ -115,18 +116,74 @@ pub fn interactive(cli: &Cli) -> Result<()> {
 
 /// Pede o token na primeira execução, descobre se é de bot ou de usuário e salva.
 fn ensure_token(cli: &Cli, color: bool) {
-    if crate::token_of(cli).is_some() {
+    let mut cfg = crate::config::load();
+    let explicito = cli
+        .token
+        .clone()
+        .or_else(|| std::env::var("DISCORD_TOKEN").ok());
+
+    if let Some(raw) = explicito {
+        match crate::discord::probe(&raw) {
+            Ok((is_user, me)) => {
+                cfg.token = Some(crate::discord::normalize_token(&raw).unwrap_or(raw));
+                cfg.user_token = is_user;
+                cfg.account_id = Some(me.id.clone());
+                cfg.display_name = Some(me.display_name());
+                if let Err(err) = crate::config::save(&cfg) {
+                    println!(
+                        "  {}não consegui salvar: {err:#}{}",
+                        bad(color),
+                        reset(color)
+                    );
+                }
+                println!(
+                    "  {}conectado como {} ({}){}",
+                    ok(color),
+                    me.display_name(),
+                    me.id,
+                    reset(color)
+                );
+            }
+            Err(err) => println!("  {}token recusado: {err:#}{}", bad(color), reset(color)),
+        }
         return;
+    }
+
+    if let Some(saved) = cfg.token.clone() {
+        match crate::discord::probe(&saved) {
+            Ok((is_user, me)) => {
+                cfg.user_token = is_user;
+                cfg.account_id = Some(me.id.clone());
+                cfg.display_name = Some(me.display_name());
+                let _ = crate::config::save(&cfg);
+                println!(
+                    "  {}conectado como {}{}",
+                    ok(color),
+                    me.display_name(),
+                    reset(color)
+                );
+                return;
+            }
+            Err(_) => {
+                cfg.token = None;
+                cfg.user_token = false;
+                cfg.account_id = None;
+                cfg.display_name = None;
+                let _ = crate::config::save(&cfg);
+                println!(
+                    "  {}token salvo inválido — cole um novo{}",
+                    bad(color),
+                    reset(color)
+                );
+            }
+        }
     }
     if !io::stdin().is_terminal() {
         return;
     }
+
     println!();
-    println!(
-        "  {}nenhum token salvo — cole o seu token de usuário agora{}",
-        dim(color),
-        reset(color)
-    );
+    println!("  {}cole seu token do Discord{}", dim(color), reset(color));
     print!("  {}token:{} ", accent(color), reset(color));
     let _ = io::stdout().flush();
 
@@ -137,7 +194,7 @@ fn ensure_token(cli: &Cli, color: bool) {
     let token = linha.trim().to_string();
     if token.is_empty() {
         println!(
-            "  {}seguindo sem token — só detecção e firewall{}",
+            "  {}seguindo sem token — detecção e firewall continuam{}",
             dim(color),
             reset(color)
         );
@@ -145,11 +202,11 @@ fn ensure_token(cli: &Cli, color: bool) {
     }
 
     match crate::discord::probe(&token) {
-        Ok((is_user, nome)) => {
-            let cfg = crate::config::Config {
-                token: Some(token),
-                user_token: is_user,
-            };
+        Ok((is_user, me)) => {
+            cfg.token = crate::discord::normalize_token(&token).ok();
+            cfg.user_token = is_user;
+            cfg.account_id = Some(me.id.clone());
+            cfg.display_name = Some(me.display_name());
             match crate::config::save(&cfg) {
                 Ok(()) => println!(
                     "  {}token de {} salvo em {}{}",
@@ -164,13 +221,15 @@ fn ensure_token(cli: &Cli, color: bool) {
                     reset(color)
                 ),
             }
-            println!("  {}conectado como {nome}{}", ok(color), reset(color));
+            println!(
+                "  {}conectado como {} ({}){}",
+                ok(color),
+                me.display_name(),
+                me.id,
+                reset(color)
+            );
         }
-        Err(_) => println!(
-            "  {}token recusado pela API — confira se copiou inteiro{}",
-            bad(color),
-            reset(color)
-        ),
+        Err(err) => println!("  {}token recusado: {err:#}{}", bad(color), reset(color)),
     }
 }
 
@@ -263,19 +322,25 @@ fn call_line(color: bool) -> String {
 
 fn token_line(cli: &Cli, color: bool) -> String {
     match crate::token_of(cli) {
-        Some(t) => {
+        Some(_) => {
             let cfg = crate::config::load();
+            let explicito = cli
+                .token
+                .clone()
+                .or_else(|| std::env::var("DISCORD_TOKEN").ok())
+                .and_then(|raw| crate::discord::normalize_token(&raw).ok());
+            let validado = cfg.token.as_deref() == explicito.as_deref()
+                || explicito.is_none() && cfg.display_name.is_some();
+            if !validado {
+                return format!("{} definido (não validado)", dot(color, false));
+            }
             let tipo = if cli.user_token || cfg.user_token {
-                ", usuário"
+                "usuário"
             } else {
-                ", tipo automático"
+                "bot"
             };
-            format!(
-                "{} definido ({}{})",
-                dot(color, true),
-                t.chars().take(6).collect::<String>(),
-                tipo
-            )
+            let nome = cfg.display_name.as_deref().unwrap_or("conta");
+            format!("{} definido ({}, {})", dot(color, true), nome, tipo)
         }
         None => format!("{} nenhum token salvo", dot(color, false)),
     }

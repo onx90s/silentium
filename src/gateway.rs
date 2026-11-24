@@ -145,11 +145,7 @@ fn snapshot_try(token: &str, user_token: bool, seconds: u64) -> Result<Snapshot>
                     users.retain(|u| u.user_id != uid);
                     continue;
                 }
-                let name = d["member"]["user"]["username"]
-                    .as_str()
-                    .or_else(|| d["member"]["nick"].as_str())
-                    .unwrap_or(&uid)
-                    .to_string();
+                let name = display_name(&d["member"], &uid);
                 upsert(
                     &mut users,
                     VoiceUser {
@@ -177,6 +173,25 @@ fn snapshot_try(token: &str, user_token: bool, seconds: u64) -> Result<Snapshot>
     Ok(Snapshot { me, users, guilds })
 }
 
+fn display_name(member: &Value, fallback: &str) -> String {
+    if let Some(nick) = member["nick"].as_str().filter(|name| !name.is_empty()) {
+        return nick.to_string();
+    }
+    if let Some(global) = member["user"]["global_name"]
+        .as_str()
+        .filter(|name| !name.is_empty())
+    {
+        return global.to_string();
+    }
+    let username = member["user"]["username"].as_str().unwrap_or(fallback);
+    let tag = member["user"]["discriminator"].as_str().unwrap_or("0");
+    if tag != "0" && !tag.is_empty() {
+        format!("{username}#{tag}")
+    } else {
+        username.to_string()
+    }
+}
+
 fn collect(states: Option<&Value>, gid: &str, out: &mut Vec<VoiceUser>) {
     let Some(list) = states.and_then(Value::as_array) else {
         return;
@@ -187,11 +202,7 @@ fn collect(states: Option<&Value>, gid: &str, out: &mut Vec<VoiceUser>) {
             continue;
         }
         let uid = state["user_id"].as_str().unwrap_or_default().to_string();
-        let name = state["member"]["user"]["username"]
-            .as_str()
-            .or_else(|| state["member"]["nick"].as_str())
-            .unwrap_or(&uid)
-            .to_string();
+        let name = display_name(&state["member"], &uid);
         upsert(
             out,
             VoiceUser {
@@ -333,5 +344,31 @@ pub fn leave(token: &str, user_token: bool, guild_id: &str, seconds: u64) -> Res
         Ok(())
     } else {
         bail!("não consegui enviar o comando de saída")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::display_name;
+    use serde_json::json;
+
+    #[test]
+    fn apelido_do_servidor_tem_prioridade() {
+        let member =
+            json!({"nick": "Apelido", "user": {"username": "user", "global_name": "Global"}});
+        assert_eq!(display_name(&member, "1"), "Apelido");
+    }
+
+    #[test]
+    fn global_name_vem_antes_do_username() {
+        let member = json!({"nick": null, "user": {"username": "user", "global_name": "Global", "discriminator": "0"}});
+        assert_eq!(display_name(&member, "1"), "Global");
+    }
+
+    #[test]
+    fn tag_legada_e_preservada() {
+        let member =
+            json!({"user": {"username": "user", "global_name": null, "discriminator": "1234"}});
+        assert_eq!(display_name(&member, "1"), "user#1234");
     }
 }

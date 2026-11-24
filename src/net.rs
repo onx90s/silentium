@@ -427,17 +427,17 @@ pub fn block_endpoint(endpoint: &str) -> Result<()> {
 }
 
 /// Desfaz o corte por endpoint.
-pub fn unblock_endpoint(endpoint: &str) -> Result<()> {
+pub fn unblock_endpoint(_endpoint: &str) -> Result<()> {
     #[cfg(target_os = "linux")]
     {
-        let (ip, port) = endpoint.rsplit_once(':').unwrap_or((endpoint, "0"));
+        let (ip, port) = _endpoint.rsplit_once(':').unwrap_or((_endpoint, "0"));
         let _ = linux::run(
             "iptables",
             &[
                 "-D", "OUTPUT", "-p", "udp", "-d", ip, "--dport", port, "-j", "DROP",
             ],
         );
-        println!("[+] corte removido de {endpoint}");
+        println!("[+] corte removido de {_endpoint}");
         Ok(())
     }
     #[cfg(windows)]

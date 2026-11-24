@@ -41,7 +41,16 @@ fn run() -> Result<()> {
         Some(Cmd::Whoami) => {
             let api = build_api(&cli)?;
             let me = api.me()?;
-            println!("bot: {} ({})", me.username, me.id);
+            println!(
+                "{}: {} ({})",
+                if api.is_user_token() {
+                    "usuário"
+                } else {
+                    "bot"
+                },
+                me.display_name(),
+                me.id
+            );
             Ok(())
         }
         Some(Cmd::Detect) => print_detect(),
@@ -169,6 +178,7 @@ pub(crate) fn token_of(cli: &Cli) -> Option<String> {
         .clone()
         .or_else(|| std::env::var("DISCORD_TOKEN").ok())
         .or_else(|| config::load().token)
+        .and_then(|raw| discord::normalize_token(&raw).ok())
 }
 
 fn build_api(cli: &Cli) -> Result<Api> {
@@ -256,7 +266,7 @@ pub(crate) fn doctor(cli: &Cli) -> Result<()> {
 
     let api = Api::new(token.clone(), false, cli.delay_ms, uses_user_token(cli));
     match api.me() {
-        Ok(me) => println!("  identidade       {} ({})", me.username, me.id),
+        Ok(me) => println!("  identidade       {} ({})", me.display_name(), me.id),
         Err(err) => {
             println!("  identidade       falhou: {err:#}");
             return Ok(());
@@ -399,9 +409,10 @@ fn collect_targets(
                     continue;
                 }
             }
+            let name = member.user.display_name();
             out.push(Target {
                 user_id: member.user.id,
-                name: member.user.username,
+                name,
                 channel_id,
                 mute: state.mute,
                 deaf: state.deaf,

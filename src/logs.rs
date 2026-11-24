@@ -33,8 +33,9 @@ impl Call {
 
 /// Diretórios de log do cliente Discord, por plataforma.
 fn log_dirs() -> Vec<PathBuf> {
-    let home = std::env::var("HOME").unwrap_or_default();
     let mut dirs = Vec::new();
+    #[cfg(not(windows))]
+    let home = std::env::var("HOME").unwrap_or_default();
 
     #[cfg(target_os = "linux")]
     {

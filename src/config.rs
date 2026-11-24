@@ -9,6 +9,10 @@ pub struct Config {
     pub token: Option<String>,
     #[serde(default)]
     pub user_token: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
 }
 
 pub fn path() -> PathBuf {
