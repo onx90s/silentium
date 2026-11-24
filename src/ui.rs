@@ -238,6 +238,9 @@ fn discord_line(color: bool) -> String {
 }
 
 fn call_line(color: bool) -> String {
+    if let Ok(Some(call)) = crate::logs::current_call() {
+        return format!("{} ativa — {}", dot(color, true), call.describe());
+    }
     match detect::voice_peers() {
         Ok(peers) => {
             let voice: Vec<_> = peers.iter().filter(|p| p.is_voice()).collect();

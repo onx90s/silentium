@@ -20,14 +20,20 @@ impl Peer {
     /// OU tráfego contínuo suficiente (cobre mídia caindo no 443).
     pub fn is_voice(&self) -> bool {
         let faixa = VOICE_PORT_START..=VOICE_PORT_END;
-        faixa.contains(&self.port)
-            || faixa.contains(&self.local_port)
-            || self.rate_kbps.map(|rate| rate >= 20).unwrap_or(false)
+        if faixa.contains(&self.port) {
+            return true;
+        }
+        // No Windows o netstat esconde o peer: a porta local é o único sinal.
+        #[cfg(windows)]
+        if faixa.contains(&self.local_port) {
+            return true;
+        }
+        self.rate_kbps.map(|rate| rate >= 20).unwrap_or(false)
     }
 
     pub fn confidence(&self) -> &'static str {
         let faixa = VOICE_PORT_START..=VOICE_PORT_END;
-        if faixa.contains(&self.port) || faixa.contains(&self.local_port) {
+        if faixa.contains(&self.port) {
             "alta"
         } else if self.rate_kbps.unwrap_or(0) >= 20 {
             "média"
@@ -335,10 +341,10 @@ mod tests {
     }
 
     #[test]
-    fn porta_local_na_faixa_conta_como_call() {
+    fn porta_local_so_conta_no_windows() {
         let mut p = peer(443);
         p.local_port = 50003;
-        assert!(p.is_voice());
+        assert_eq!(p.is_voice(), cfg!(windows));
     }
 
     #[test]

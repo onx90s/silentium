@@ -143,6 +143,29 @@ Write-Output ("regras: {0}" -f $paths.Count)
         Ok(())
     }
 
+    pub fn block_endpoint(endpoint: &str) -> Result<()> {
+        let ip = endpoint
+            .rsplit_once(':')
+            .map(|(host, _)| host)
+            .unwrap_or(endpoint);
+        let script = format!(
+            "New-NetFirewallRule -DisplayName '{POLICY_PREFIX}-media' -Direction Outbound \
+             -RemoteAddress {ip} -Action Block -Profile Any -ErrorAction Stop | Out-Null"
+        );
+        powershell(&script).context("regra de firewall por endereço (Administrador)")?;
+        println!("[+] mídia de voz cortada para {ip}");
+        Ok(())
+    }
+
+    pub fn clear_endpoint() -> Result<()> {
+        let script = format!(
+            "Get-NetFirewallRule -DisplayName '{POLICY_PREFIX}-media' -ErrorAction SilentlyContinue | Remove-NetFirewallRule"
+        );
+        powershell(&script)?;
+        println!("[+] corte por endereço removido");
+        Ok(())
+    }
+
     pub fn clear() -> Result<()> {
         for name in [
             format!("{POLICY_PREFIX}-out"),
@@ -166,7 +189,7 @@ mod linux {
 
     const MARK: &str = "0x0d15";
 
-    fn run(program: &str, args: &[&str]) -> Result<()> {
+    pub fn run(program: &str, args: &[&str]) -> Result<()> {
         let out = Command::new(program)
             .args(args)
             .output()
@@ -367,5 +390,63 @@ pub fn unblock() -> Result<()> {
     #[cfg(not(any(windows, target_os = "linux")))]
     {
         anyhow::bail!("plataforma sem suporte a bloqueio por processo")
+    }
+}
+
+/// Corta só o fluxo de mídia com o servidor informado ("ip:porta").
+pub fn block_endpoint(endpoint: &str) -> Result<()> {
+    #[cfg(target_os = "linux")]
+    {
+        let (ip, port) = endpoint.rsplit_once(':').unwrap_or((endpoint, "0"));
+        linux::run(
+            "iptables",
+            &[
+                "-C", "OUTPUT", "-p", "udp", "-d", ip, "--dport", port, "-j", "DROP",
+            ],
+        )
+        .or_else(|_| {
+            linux::run(
+                "iptables",
+                &[
+                    "-A", "OUTPUT", "-p", "udp", "-d", ip, "--dport", port, "-j", "DROP",
+                ],
+            )
+        })?;
+        println!("[+] mídia de voz cortada para {endpoint}");
+        Ok(())
+    }
+    #[cfg(windows)]
+    {
+        windows::block_endpoint(endpoint)
+    }
+    #[cfg(not(any(windows, target_os = "linux")))]
+    {
+        let _ = endpoint;
+        anyhow::bail!("sem suporte a corte por endpoint")
+    }
+}
+
+/// Desfaz o corte por endpoint.
+pub fn unblock_endpoint(endpoint: &str) -> Result<()> {
+    #[cfg(target_os = "linux")]
+    {
+        let (ip, port) = endpoint.rsplit_once(':').unwrap_or((endpoint, "0"));
+        let _ = linux::run(
+            "iptables",
+            &[
+                "-D", "OUTPUT", "-p", "udp", "-d", ip, "--dport", port, "-j", "DROP",
+            ],
+        );
+        println!("[+] corte removido de {endpoint}");
+        Ok(())
+    }
+    #[cfg(windows)]
+    {
+        windows::clear_endpoint()
+    }
+    #[cfg(not(any(windows, target_os = "linux")))]
+    {
+        let _ = endpoint;
+        anyhow::bail!("sem suporte a corte por endpoint")
     }
 }

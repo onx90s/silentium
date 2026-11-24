@@ -3,6 +3,7 @@ mod config;
 mod detect;
 mod discord;
 mod gateway;
+mod logs;
 mod net;
 mod ui;
 mod update;
@@ -67,7 +68,16 @@ fn run() -> Result<()> {
 /// Lista quem está em voz usando o gateway (aceita token de usuário).
 pub(crate) fn who(cli: &Cli) -> Result<()> {
     let token = token_of(cli).context("sem token")?;
-    let snap = gateway::snapshot(&token, uses_user_token(cli), 6)?;
+    let snap = match gateway::snapshot(&token, uses_user_token(cli), 6) {
+        Ok(snap) => snap,
+        Err(err) => {
+            println!("gateway indisponível ({err:#})");
+            if let Ok(Some(call)) = logs::current_call() {
+                println!("call ativa (log do client): {}", call.describe());
+            }
+            return Ok(());
+        }
+    };
     if snap.users.is_empty() {
         println!("ninguém em voz nas suas calls");
         return Ok(());
@@ -110,10 +120,16 @@ pub(crate) fn leave(cli: &Cli) -> Result<()> {
 }
 
 pub(crate) fn print_detect() -> Result<()> {
+    match logs::current_call() {
+        Ok(Some(call)) => println!("call ativa (log do client): {}", call.describe()),
+        Ok(None) => println!("nenhuma call ativa (log do client)"),
+        Err(err) => println!("log do client: {err:#}"),
+    }
+
     let peers = detect::voice_peers()?;
     let voice: Vec<_> = peers.iter().filter(|p| p.is_voice()).collect();
     if voice.is_empty() {
-        println!("nenhuma call ativa");
+        println!("sockets: nenhum tráfego de mídia");
         if !peers.is_empty() {
             println!("sockets do Discord fora da faixa de voz (gateway/QUIC):");
             for peer in &peers {
@@ -178,23 +194,44 @@ pub(crate) fn drop_call(cli: &Cli) -> Result<()> {
             if let Err(erro) = saiu {
                 println!("  não consegui sair pelo gateway: {erro:#}");
             }
-            cut_for(net::ShapeSpec {
-                rate_kbps: 1,
-                loss_percent: None,
-                delay_ms: None,
-                iface: None,
-            })
+            let endpoint = logs::current_call()
+                .ok()
+                .flatten()
+                .and_then(|call| call.media_server);
+            cut_for(
+                net::ShapeSpec {
+                    rate_kbps: 1,
+                    loss_percent: None,
+                    delay_ms: None,
+                    iface: None,
+                },
+                endpoint,
+            )
         }
     }
 }
 
-fn cut_for(_spec: net::ShapeSpec) -> Result<()> {
-    if let Err(err) = net::block() {
-        println!("  corte de rede indisponível: {err:#}");
-        return Ok(());
-    }
+/// Corta o fluxo de mídia da call (ou o processo inteiro, se não houver alvo).
+fn cut_for(_spec: net::ShapeSpec, endpoint: Option<String>) -> Result<()> {
+    let por_endpoint = endpoint.as_deref().map(net::block_endpoint).transpose();
+
+    let alvo = match por_endpoint {
+        Ok(Some(())) => endpoint.clone(),
+        _ => {
+            if let Err(err) = net::block() {
+                println!("  corte de rede indisponível: {err:#}");
+                return Ok(());
+            }
+            None
+        }
+    };
+
     wait_window(Some(15), "cortando o Discord")?;
-    net::unblock()
+
+    match &alvo {
+        Some(ep) => net::unblock_endpoint(ep),
+        None => net::unblock(),
+    }
 }
 
 /// Diagnóstico: o que o token atual consegue e o que não consegue.
