@@ -446,7 +446,7 @@ pub fn unblock_endpoint(_endpoint: &str) -> Result<()> {
     }
     #[cfg(not(any(windows, target_os = "linux")))]
     {
-        let _ = endpoint;
+        let _ = _endpoint;
         anyhow::bail!("sem suporte a corte por endpoint")
     }
 }
