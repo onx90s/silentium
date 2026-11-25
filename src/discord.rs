@@ -300,14 +300,51 @@ pub fn invite_code(raw: &str) -> Result<String> {
 /// Descobre se o token é de bot ou de usuário, e devolve o nome da conta.
 pub fn probe(token: &str) -> Result<(bool, Me)> {
     let token = normalize_token(token)?;
-    if let Ok(me) = probe_with(&token, true) {
-        return Ok((true, me));
+    match probe_with(&token, true) {
+        Ok(me) => return Ok((true, me)),
+        Err(ProbeError::Unauthorized) => {}
+        Err(err) => return Err(err.into()),
     }
-    let me = probe_with(&token, false).context("token recusado pela API")?;
-    Ok((false, me))
+    match probe_with(&token, false) {
+        Ok(me) => Ok((false, me)),
+        Err(ProbeError::Unauthorized) => Err(anyhow!(TokenRejected)),
+        Err(err) => Err(err.into()),
+    }
 }
 
-fn probe_with(token: &str, user_token: bool) -> Result<Me> {
+#[derive(Debug)]
+pub struct TokenRejected;
+
+impl std::fmt::Display for TokenRejected {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("a API retornou 401 — token inválido, revogado ou expirado")
+    }
+}
+
+impl std::error::Error for TokenRejected {}
+
+#[derive(Debug)]
+enum ProbeError {
+    Unauthorized,
+    Http(u16, String),
+    Network(String),
+    Payload(String),
+}
+
+impl From<ProbeError> for anyhow::Error {
+    fn from(err: ProbeError) -> Self {
+        match err {
+            ProbeError::Unauthorized => anyhow!(TokenRejected),
+            ProbeError::Http(code, message) => {
+                anyhow!("a API retornou HTTP {code}: {message}")
+            }
+            ProbeError::Network(message) => anyhow!("falha de rede ao validar: {message}"),
+            ProbeError::Payload(message) => anyhow!("resposta inesperada de /users/@me: {message}"),
+        }
+    }
+}
+
+fn probe_with(token: &str, user_token: bool) -> std::result::Result<Me, ProbeError> {
     let auth = if user_token {
         token.to_string()
     } else {
@@ -321,9 +358,23 @@ fn probe_with(token: &str, user_token: bool) -> Result<Me> {
         .get(&format!("{API}/users/@me"))
         .set("Authorization", &auth)
         .set("User-Agent", &user_agent(user_token))
+        .set("Accept", "*/*")
         .call()
-        .map_err(|err| anyhow!("{err}"))?;
-    resp.into_json::<Me>().context("resposta inesperada")
+        .map_err(|err| match err {
+            ureq::Error::Status(401, _) => ProbeError::Unauthorized,
+            ureq::Error::Status(code, resp) => {
+                let payload = resp.into_json::<Value>().unwrap_or(Value::Null);
+                let message = payload
+                    .get("message")
+                    .and_then(Value::as_str)
+                    .unwrap_or("sem mensagem")
+                    .to_string();
+                ProbeError::Http(code, message)
+            }
+            other => ProbeError::Network(other.to_string()),
+        })?;
+    resp.into_json::<Me>()
+        .map_err(|err| ProbeError::Payload(err.to_string()))
 }
 
 /// UA válido para cada tipo de autenticação. Bots precisam conter "DiscordBot".
@@ -345,23 +396,56 @@ pub fn user_agent(user_token: bool) -> String {
     }
 }
 
-/// Aceita o token cru ou com prefixo/aspas colados por engano.
+/// Aceita o token cru ou com prefixo/aspas e quebras de linha colados por engano.
 pub fn normalize_token(raw: &str) -> Result<String> {
-    let mut token = raw.trim().trim_matches(|c| c == '"' || c == '\'').trim();
-    for prefix in ["Bot ", "Bearer "] {
+    let mut token: String = raw.chars().filter(|c| !c.is_whitespace()).collect();
+    token = token.trim_matches(|c| c == '"' || c == '\'').to_string();
+    for prefix in ["Bot", "Bearer"] {
         if token
             .get(..prefix.len())
             .map(|start| start.eq_ignore_ascii_case(prefix))
             .unwrap_or(false)
         {
-            token = token[prefix.len()..].trim();
+            token = token[prefix.len()..].to_string();
             break;
         }
     }
-    if token.len() < 40 || token.contains(char::is_whitespace) {
+    let valido = token.len() >= 40
+        && token
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-' | b'='));
+    if !valido {
         bail!("token incompleto — copie o valor inteiro, sem aspas");
     }
-    Ok(token.to_string())
+    Ok(token)
+}
+
+/// Detecta um token quebrado em duas linhas para continuar lendo o paste.
+pub(crate) fn needs_continuation(raw: &str) -> bool {
+    let compact: String = raw.chars().filter(|c| !c.is_whitespace()).collect();
+    let compact = compact.trim_matches(|c| c == '"' || c == '\'');
+    let compact = ["Bot", "Bearer"]
+        .iter()
+        .find_map(|prefix| {
+            compact
+                .get(..prefix.len())
+                .filter(|start| start.eq_ignore_ascii_case(prefix))
+                .map(|_| &compact[prefix.len()..])
+        })
+        .unwrap_or(compact);
+    let parts: Vec<_> = compact.split('.').collect();
+    if parts.len() < 2 {
+        return false;
+    }
+    let first = parts[0];
+    if !(20..=32).contains(&first.len())
+        || !first
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-'))
+    {
+        return false;
+    }
+    parts.len() < 3 || compact.len() < 55 || parts[2].len() < 20
 }
 
 #[cfg(test)]
@@ -413,7 +497,7 @@ mod tests {
 
 #[cfg(test)]
 mod identity_tests {
-    use super::{normalize_token, Me, User};
+    use super::{needs_continuation, normalize_token, Me, User};
 
     #[test]
     fn nome_de_exibicao_prioriza_global_name() {
@@ -451,6 +535,21 @@ mod identity_tests {
             normalize_token(&format!("'Bearer {token}'")).unwrap(),
             token
         );
+    }
+
+    #[test]
+    fn normaliza_quebras_de_linha_no_token() {
+        let token = format!("{}abc.def", "a".repeat(48));
+        let raw = format!("\"{}\n{}\t{}\"", &token[..30], &token[30..55], &token[55..]);
+        assert_eq!(normalize_token(&raw).unwrap(), token);
+    }
+
+    #[test]
+    fn detecta_token_quebrado_em_duas_linhas() {
+        let token = format!("{}.abcdef.{}", "a".repeat(26), "b".repeat(38));
+        assert!(needs_continuation(&token[..38]));
+        assert!(!needs_continuation(&token));
+        assert!(!needs_continuation("abc"));
     }
 
     #[test]

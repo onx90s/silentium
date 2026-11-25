@@ -144,7 +144,7 @@ fn ensure_token(cli: &Cli, color: bool) {
                     reset(color)
                 );
             }
-            Err(err) => println!("  {}token recusado: {err:#}{}", bad(color), reset(color)),
+            Err(err) => print_token_error(color, &err),
         }
         return;
     }
@@ -164,17 +164,25 @@ fn ensure_token(cli: &Cli, color: bool) {
                 );
                 return;
             }
-            Err(_) => {
-                cfg.token = None;
-                cfg.user_token = false;
-                cfg.account_id = None;
-                cfg.display_name = None;
-                let _ = crate::config::save(&cfg);
-                println!(
-                    "  {}token salvo inválido — cole um novo{}",
-                    bad(color),
-                    reset(color)
-                );
+            Err(err) => {
+                if err
+                    .downcast_ref::<crate::discord::TokenRejected>()
+                    .is_some()
+                {
+                    cfg.token = None;
+                    cfg.user_token = false;
+                    cfg.account_id = None;
+                    cfg.display_name = None;
+                    let _ = crate::config::save(&cfg);
+                    println!(
+                        "  {}token salvo inválido — cole um novo{}",
+                        bad(color),
+                        reset(color)
+                    );
+                } else {
+                    print_token_error(color, &err);
+                    return;
+                }
             }
         }
     }
@@ -183,15 +191,30 @@ fn ensure_token(cli: &Cli, color: bool) {
     }
 
     println!();
-    println!("  {}cole seu token do Discord{}", dim(color), reset(color));
+    println!(
+        "  {}cole seu token do Discord (pode colar em mais de uma linha){}",
+        dim(color),
+        reset(color)
+    );
     print!("  {}token:{} ", accent(color), reset(color));
     let _ = io::stdout().flush();
 
-    let mut linha = String::new();
-    if io::stdin().read_line(&mut linha).is_err() {
-        return;
+    let mut token = String::new();
+    loop {
+        let mut linha = String::new();
+        match io::stdin().read_line(&mut linha) {
+            Ok(0) => break,
+            Ok(_) => {}
+            Err(_) => return,
+        }
+        token.push_str(&linha);
+        if !crate::discord::needs_continuation(&token) {
+            break;
+        }
+        print!("  {}continuação:{} ", accent(color), reset(color));
+        let _ = io::stdout().flush();
     }
-    let token = linha.trim().to_string();
+    let token = token.trim().to_string();
     if token.is_empty() {
         println!(
             "  {}seguindo sem token — detecção e firewall continuam{}",
@@ -229,7 +252,26 @@ fn ensure_token(cli: &Cli, color: bool) {
                 reset(color)
             );
         }
-        Err(err) => println!("  {}token recusado: {err:#}{}", bad(color), reset(color)),
+        Err(err) => print_token_error(color, &err),
+    }
+}
+
+fn print_token_error(color: bool, err: &anyhow::Error) {
+    if err
+        .downcast_ref::<crate::discord::TokenRejected>()
+        .is_some()
+    {
+        println!(
+            "  {}token recusado — inválido, revogado ou expirado{}",
+            bad(color),
+            reset(color)
+        );
+    } else {
+        println!(
+            "  {}não consegui validar o token: {err:#}{}",
+            bad(color),
+            reset(color)
+        );
     }
 }
 

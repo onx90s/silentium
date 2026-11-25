@@ -114,7 +114,9 @@ silentium
   firewall   ○ sem privilégio — net só com sudo
 ```
 
-O tipo é detectado sozinho: se o token funciona com prefixo `Bot` ele é de bot, senão é de usuário. Só um é pedido por execução, e fica gravado (`%APPDATA%\Silentium\config.json` no Windows).
+O tipo é detectado sozinho: o Silentium tenta o token como usuário e, se receber `401`, tenta como bot. Só um é pedido por execução, e fica gravado (`%APPDATA%\Silentium\config.json` no Windows).
+
+Se o token aparecer quebrado em duas linhas, cole as duas: o Silentium pede `continuação:` e junta o valor. `401` significa token inválido, revogado ou expirado; falha de rede é mostrada separadamente e não apaga o token salvo.
 
 Menu:
 
