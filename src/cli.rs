@@ -118,6 +118,12 @@ pub enum NetCmd {
         /// Duração em segundos. Sem isso, roda até Ctrl-C.
         #[arg(long)]
         seconds: Option<u64>,
+        /// Tempo congelado a cada ciclo, em ms (20-5000).
+        #[arg(long, default_value_t = 350)]
+        freeze_ms: u64,
+        /// Tempo livre a cada ciclo, em ms (0-5000).
+        #[arg(long, default_value_t = 120)]
+        open_ms: u64,
     },
     /// Aplica shaping no UDP de voz (50000-65535).
     Throttle {
@@ -152,11 +158,17 @@ pub enum NetCmd {
     Unblock,
     /// Detecta a call ativa e atrapalha o Discord local por N segundos.
     Auto {
-        /// Duração em segundos. Sem isso, fica até Enter/Ctrl-C.
+        /// Duração em segundos. Sem isso, fica até Ctrl-C.
         #[arg(long)]
         seconds: Option<u64>,
-        /// Corta mesmo se nenhuma call for detectada.
+        /// Atrapalha mesmo se nenhuma call for detectada.
         #[arg(long)]
         force: bool,
+        /// Tempo congelado a cada ciclo, em ms (20-5000).
+        #[arg(long, default_value_t = 350)]
+        freeze_ms: u64,
+        /// Tempo livre a cada ciclo, em ms (0-5000).
+        #[arg(long, default_value_t = 120)]
+        open_ms: u64,
     },
 }

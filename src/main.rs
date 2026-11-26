@@ -193,7 +193,7 @@ fn build_api(cli: &Cli) -> Result<Api> {
 
 /// Opção 3 do menu: atrapalha só o Discord local, sem token ou privilégio.
 pub(crate) fn drop_call(_cli: &Cli) -> Result<()> {
-    net::jam(Some(15))
+    net::jam(net::JamSpec::new(Some(15), 350, 120)?)
 }
 
 /// Diagnóstico: o que o token atual consegue e o que não consegue.
@@ -541,10 +541,19 @@ fn wait_window(seconds: Option<u64>, hint: &str) -> Result<()> {
 
 fn net_dispatch(cmd: &NetCmd) -> Result<()> {
     match cmd {
-        NetCmd::Jam { seconds } => net::jam(*seconds),
+        NetCmd::Jam {
+            seconds,
+            freeze_ms,
+            open_ms,
+        } => net::jam(net::JamSpec::new(*seconds, *freeze_ms, *open_ms)?),
         NetCmd::Clear { iface } => net::clear(iface.clone()),
         NetCmd::Unblock => net::unblock(),
-        NetCmd::Auto { seconds, force } => {
+        NetCmd::Auto {
+            seconds,
+            force,
+            freeze_ms,
+            open_ms,
+        } => {
             let peers: Vec<_> = detect::voice_peers()?
                 .into_iter()
                 .filter(|p| p.is_voice())
@@ -561,7 +570,7 @@ fn net_dispatch(cmd: &NetCmd) -> Result<()> {
                 let list: Vec<String> = peers.iter().map(|p| p.endpoint()).collect();
                 println!("[+] call ativa: {}", list.join(", "));
             }
-            net::jam(*seconds)
+            net::jam(net::JamSpec::new(*seconds, *freeze_ms, *open_ms)?)
         }
         NetCmd::Block { seconds } => {
             net::block()?;

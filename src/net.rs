@@ -49,20 +49,44 @@ pub fn clear(iface: Option<String>) -> Result<()> {
     }
 }
 
+/// Ritmo do atrapalhamento: quanto tempo congelado e quanto tempo livre.
+#[derive(Debug, Clone, Copy)]
+pub struct JamSpec {
+    pub seconds: Option<u64>,
+    pub freeze_ms: u64,
+    pub open_ms: u64,
+}
+
+impl JamSpec {
+    pub fn new(seconds: Option<u64>, freeze_ms: u64, open_ms: u64) -> Result<Self> {
+        if !(20..=5_000).contains(&freeze_ms) {
+            bail!("--freeze-ms vai de 20 a 5000");
+        }
+        if open_ms > 5_000 {
+            bail!("--open-ms vai de 0 a 5000");
+        }
+        Ok(Self {
+            seconds,
+            freeze_ms,
+            open_ms,
+        })
+    }
+}
+
 /// Congela e retoma os processos do Discord em ciclos.
 /// Não mexe em sockets, firewall ou outros programas.
-pub fn jam(seconds: Option<u64>) -> Result<()> {
+pub fn jam(spec: JamSpec) -> Result<()> {
     #[cfg(target_os = "linux")]
     {
-        linux::jam(seconds)
+        linux::jam(spec)
     }
     #[cfg(windows)]
     {
-        windows::jam(seconds)
+        windows::jam(spec)
     }
     #[cfg(not(any(windows, target_os = "linux")))]
     {
-        let _ = seconds;
+        let _ = spec;
         bail!("plataforma sem suporte a atrapalhar o Discord")
     }
 }
@@ -72,12 +96,23 @@ trait JamControl {
     fn resume(&mut self);
 }
 
-fn run_jam<J: JamControl>(mut jammer: J, seconds: Option<u64>) -> Result<()> {
+fn run_jam<J: JamControl>(mut jammer: J, spec: JamSpec) -> Result<()> {
     crate::interrupt::install().map_err(anyhow::Error::msg)?;
     crate::interrupt::reset();
 
     println!("[+] atrapalhando só o Discord deste usuário — sem token, root ou admin");
-    let deadline = seconds.map(|secs| Instant::now() + Duration::from_secs(secs));
+    println!(
+        "[+] ciclos de {}ms parado / {}ms livre{} — Ctrl-C restaura na hora",
+        spec.freeze_ms,
+        spec.open_ms,
+        match spec.seconds {
+            Some(secs) => format!(", por {secs}s"),
+            None => String::new(),
+        }
+    );
+    let deadline = spec
+        .seconds
+        .map(|secs| Instant::now() + Duration::from_secs(secs));
     let mut first = true;
     while !crate::interrupt::hit() {
         if deadline.map(|end| Instant::now() >= end).unwrap_or(false) {
@@ -88,12 +123,12 @@ fn run_jam<J: JamControl>(mut jammer: J, seconds: Option<u64>) -> Result<()> {
             bail!("nenhum processo do Discord deste usuário para atrapalhar");
         }
         if first {
-            println!("[+] {count} processo(s) do Discord em ciclos de 350ms/120ms");
+            println!("[+] {count} processo(s) do Discord no ciclo");
             first = false;
         }
-        jam_sleep(Duration::from_millis(350));
+        jam_sleep(Duration::from_millis(spec.freeze_ms));
         jammer.resume();
-        jam_sleep(Duration::from_millis(120));
+        jam_sleep(Duration::from_millis(spec.open_ms));
     }
     jammer.resume();
     println!("[+] Discord restaurado");
@@ -176,7 +211,7 @@ mod windows {
         }
     }
 
-    pub fn jam(seconds: Option<u64>) -> Result<()> {
+    pub fn jam(spec: super::JamSpec) -> Result<()> {
         let pids = crate::detect::discord_pids();
         if pids.is_empty() {
             bail!("Discord não está rodando neste usuário");
@@ -207,7 +242,7 @@ mod windows {
             threads: Arc::new(threads),
             active: AtomicBool::new(false),
         };
-        super::run_jam(jammer, seconds)
+        super::run_jam(jammer, spec)
     }
 
     pub fn block(on: bool) -> Result<()> {
@@ -355,7 +390,7 @@ mod linux {
         }
     }
 
-    pub fn jam(seconds: Option<u64>) -> Result<()> {
+    pub fn jam(spec: super::JamSpec) -> Result<()> {
         let pids: Vec<_> = crate::detect::discord_pids()
             .into_iter()
             .filter_map(|pid| start_time(pid).map(|start| (pid, start)))
@@ -367,7 +402,7 @@ mod linux {
             pids: Arc::new(pids),
             active: AtomicBool::new(false),
         };
-        super::run_jam(jammer, seconds)
+        super::run_jam(jammer, spec)
     }
 
     pub fn run(program: &str, args: &[&str]) -> Result<()> {

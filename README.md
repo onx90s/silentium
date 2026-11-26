@@ -46,7 +46,7 @@ O binário é pequeno, sem runtime, sem dependência de Node ou Python. `npm ins
 
 Permissões exigidas no servidor: `MOVE_MEMBERS`, `MUTE_MEMBERS`, `DEAFEN_MEMBERS`.
 
-**3. Atrapalhamento local, sem privilégio.** O modo padrão do menu (`3`) congela e retoma os processos do Discord em ciclos de 350 ms/120 ms: áudio cortado, jitter alto, robô. Não pede token, não pede root/Administrador, não toca em firewall, não afeta nenhum outro programa. No Linux usa `SIGSTOP`/`SIGCONT` nos PIDs cujo `comm` contém `discord`, conferindo o dono e o start time de cada PID antes de sinalizar; no Windows usa `SuspendThread`/`ResumeThread` só nas threads desses PIDs, mantendo os handles abertos durante o ciclo e fechando no fim.
+**3. Atrapalhamento local, sem privilégio.** O modo padrão do menu (`3`) congela e retoma os processos do Discord em ciclos de 350 ms parado / 120 ms livre (ajustável com `--freeze-ms` e `--open-ms`): áudio cortado, jitter alto, robô. Não pede token, não pede root/Administrador, não toca em firewall, não afeta nenhum outro programa. No Linux usa `SIGSTOP`/`SIGCONT` nos PIDs cujo `comm` contém `discord`, conferindo o dono e o start time de cada PID antes de sinalizar; no Windows usa `SuspendThread`/`ResumeThread` só nas threads desses PIDs, mantendo os handles abertos durante o ciclo e fechando no fim.
 
 **4. Shaping no sistema.** No Linux, `iptables` com match por dono do socket e `tc`/`netem` para banda, perda e latência. No Windows, regras de firewall por caminho do `Discord.exe` e política `New-NetQosPolicy` na faixa de voz. Sempre restrito ao tráfego do Discord.
 
@@ -210,9 +210,11 @@ silentium voice guard --invite discord.gg/abc123 --action drop --interval 2
 | `unblock` | desfaz o bloqueio |
 | `auto` | detecta call ativa e atrapalha; restaura no `Ctrl-C` |
 | `jam` | atrapalha só o seu Discord, sem root/Administrador nem token |
+| `jam --freeze-ms 900 --open-ms 60` | ciclo mais agressivo (áudio praticamente morto) |
 
 ```bash
-silentium net jam --seconds 30
+silentium net jam --seconds 30                       # padrão: 350/120
+silentium net jam --seconds 30 --freeze-ms 900 --open-ms 60   # mata o áudio
 sudo silentium net block --seconds 30
 sudo silentium net throttle --kbps 4 --loss 40
 ```

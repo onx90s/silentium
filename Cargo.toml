@@ -1,6 +1,6 @@
 [package]
 name = "silentium"
-version = "0.2.10"
+version = "0.2.11"
 edition = "2021"
 rust-version = "1.75"
 description = "Discord voice kill switch: drop/mute/deafen every call participant, plus local voice-traffic shaping"
