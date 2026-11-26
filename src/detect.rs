@@ -51,40 +51,22 @@ impl Peer {
 
 /// PID do cliente Discord, se houver um rodando.
 pub fn discord_running() -> Option<u32> {
+    discord_pids().into_iter().next()
+}
+
+/// Todos os processos do Discord pertencentes ao usuário atual.
+pub fn discord_pids() -> Vec<u32> {
     #[cfg(target_os = "linux")]
     {
-        let entries = std::fs::read_dir("/proc").ok()?;
-        for entry in entries.flatten() {
-            let name = entry.file_name();
-            let Some(pid) = name.to_string_lossy().parse::<u32>().ok() else {
-                continue;
-            };
-            let Ok(comm) = std::fs::read_to_string(entry.path().join("comm")) else {
-                continue;
-            };
-            if comm.to_ascii_lowercase().contains("discord") {
-                return Some(pid);
-            }
-        }
-        None
+        linux::discord_pids()
     }
     #[cfg(windows)]
     {
-        let out = std::process::Command::new("powershell")
-            .args([
-                "-NoProfile",
-                "-NonInteractive",
-                "-Command",
-                "Get-Process Discord,DiscordPTB,DiscordCanary,DiscordDevelopment \
-                 -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty Id",
-            ])
-            .output()
-            .ok()?;
-        String::from_utf8_lossy(&out.stdout).trim().parse().ok()
+        windows::discord_pids()
     }
     #[cfg(not(any(windows, target_os = "linux")))]
     {
-        None
+        Vec::new()
     }
 }
 
@@ -154,6 +136,46 @@ mod linux {
         peers.sort_by_key(|a| a.endpoint());
         peers.dedup_by(|a, b| a.endpoint() == b.endpoint());
         Ok(peers)
+    }
+
+    pub(super) fn discord_pids() -> Vec<u32> {
+        let Some(uid) = process_uid("/proc/self/status") else {
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        let Ok(entries) = std::fs::read_dir("/proc") else {
+            return out;
+        };
+        for entry in entries.flatten() {
+            let Some(pid) = entry.file_name().to_string_lossy().parse::<u32>().ok() else {
+                continue;
+            };
+            let base = entry.path();
+            let Ok(comm) = std::fs::read_to_string(base.join("comm")) else {
+                continue;
+            };
+            if !comm.to_ascii_lowercase().contains("discord") {
+                continue;
+            }
+            let status = base.join("status");
+            if process_uid(status.to_str().unwrap_or_default()) != Some(uid) {
+                continue;
+            }
+            out.push(pid);
+        }
+        out.sort_unstable();
+        out.dedup();
+        out
+    }
+
+    fn process_uid(path: &str) -> Option<u32> {
+        let text = std::fs::read_to_string(path).ok()?;
+        text.lines()
+            .find_map(|line| line.strip_prefix("Uid:"))?
+            .split_whitespace()
+            .next()?
+            .parse()
+            .ok()
     }
 
     fn snapshot() -> Result<Vec<Raw>> {
@@ -242,15 +264,23 @@ mod windows {
         Ok(String::from_utf8_lossy(&out.stdout).to_string())
     }
 
-    pub fn voice_peers() -> Result<Vec<Peer>> {
-        let pids = powershell(
-            "Get-Process Discord,DiscordPTB,DiscordCanary,DiscordDevelopment -ErrorAction SilentlyContinue | \
-             ForEach-Object { $_.Id }",
-        )?;
-        let pids: Vec<u32> = pids
+    pub(super) fn discord_pids() -> Vec<u32> {
+        let out = powershell(
+            "Get-Process Discord,DiscordPTB,DiscordCanary,DiscordDevelopment \
+             -ErrorAction SilentlyContinue | ForEach-Object { $_.Id }",
+        )
+        .unwrap_or_default();
+        let mut pids: Vec<u32> = out
             .split_whitespace()
-            .filter_map(|p| p.parse::<u32>().ok())
+            .filter_map(|pid| pid.parse().ok())
             .collect();
+        pids.sort_unstable();
+        pids.dedup();
+        pids
+    }
+
+    pub fn voice_peers() -> Result<Vec<Peer>> {
+        let pids = discord_pids();
         if pids.is_empty() {
             return Ok(Vec::new());
         }

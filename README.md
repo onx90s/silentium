@@ -46,7 +46,9 @@ O binário é pequeno, sem runtime, sem dependência de Node ou Python. `npm ins
 
 Permissões exigidas no servidor: `MOVE_MEMBERS`, `MUTE_MEMBERS`, `DEAFEN_MEMBERS`.
 
-**3. Shaping no sistema.** No Linux, `iptables` com match por dono do socket e `tc`/`netem` para banda, perda e latência. No Windows, regras de firewall por caminho do `Discord.exe` e política `New-NetQosPolicy` na faixa de voz. Sempre restrito ao tráfego do Discord.
+**3. Atrapalhamento local, sem privilégio.** O modo padrão do menu (`3`) congela e retoma os processos do Discord em ciclos de 350 ms/120 ms: áudio cortado, jitter alto, robô. Não pede token, não pede root/Administrador, não toca em firewall, não afeta nenhum outro programa. No Linux usa `SIGSTOP`/`SIGCONT` nos PIDs cujo `comm` contém `discord`, conferindo o dono e o start time de cada PID antes de sinalizar; no Windows usa `SuspendThread`/`ResumeThread` só nas threads desses PIDs, mantendo os handles abertos durante o ciclo e fechando no fim.
+
+**4. Shaping no sistema.** No Linux, `iptables` com match por dono do socket e `tc`/`netem` para banda, perda e latência. No Windows, regras de firewall por caminho do `Discord.exe` e política `New-NetQosPolicy` na faixa de voz. Sempre restrito ao tráfego do Discord.
 
 ## Instalação
 
@@ -111,7 +113,7 @@ silentium
   discord    ● rodando — pid 4213
   call       ● ativa — 1 socket de mídia (50002)
   token      ● definido (MTQ3KZ, usuário)
-  firewall   ○ sem privilégio — net só com sudo
+  firewall   ● atrapalhamento local disponível — firewall exige sudo/admin
 ```
 
 O tipo é detectado sozinho: o Silentium tenta o token como usuário e, se receber `401`, tenta como bot. Só um é pedido por execução, e fica gravado (`%APPDATA%\Silentium\config.json` no Windows).
@@ -123,7 +125,7 @@ Menu:
 ```
  1  detectar a call              sockets locais, sem token
  2  quem está na call            gateway, com o seu token
- 3  derrubar todos               derruba a call
+ 3  derrubar todos               atrapalha seu Discord, sem root
  ?  ajuda                        comandos e flags
  q  sair                         encerra
 ```
@@ -135,7 +137,8 @@ silentium detect          # zero credencial
 silentium voice who       # quem está em voz (gateway)
 silentium voice leave     # sai da call em que você está
 silentium voice drop      # derruba todos (token com MOVE_MEMBERS)
-silentium net auto --seconds 30
+silentium net jam --seconds 15   # atrapalha só o seu Discord, sem privilégio
+silentium net auto --seconds 30  # idem, mas só se houver call ativa
 ```
 
 Nenhum comando exige `--guild`: quando ele falta, o escopo vem da call ativa via gateway. `--invite` e `--guild` continuam aceitos para apontar um servidor específico.
@@ -205,19 +208,21 @@ silentium voice guard --invite discord.gg/abc123 --action drop --interval 2
 | `clear` | remove todo o shaping |
 | `block` | corta a internet **só do Discord**, por processo |
 | `unblock` | desfaz o bloqueio |
-| `auto` | detecta call ativa e corta; restaura no `Enter`/`Ctrl-C` |
+| `auto` | detecta call ativa e atrapalha; restaura no `Ctrl-C` |
+| `jam` | atrapalha só o seu Discord, sem root/Administrador nem token |
 
 ```bash
-sudo silentium net auto --seconds 30
+silentium net jam --seconds 30
+sudo silentium net block --seconds 30
 sudo silentium net throttle --kbps 4 --loss 40
 ```
 
 ## Receitas
 
-Cortar a call por 30 segundos, sem pensar em IDs:
+Cortar a call por 30 segundos, sem pensar em IDs e sem privilégio:
 
 ```bash
-sudo silentium net auto --seconds 30
+silentium net jam --seconds 30
 ```
 
 Silenciar um participante específico, sem sair do servidor:
@@ -263,6 +268,7 @@ Como ele se atualiza depende de como foi instalado: pacote npm → `npm install 
 |---|---|---|
 | `detect` | `iproute2` (`ss`) | PowerShell (`netstat`) |
 | `voice *` | token + permissões no servidor | idem |
+| `net jam` / menu `3` | nenhum (mesmo usuário do Discord) | nenhum (mesmo usuário do Discord) |
 | `net block` | root, `iptables` | Administrador, firewall |
 | `net throttle` | root, `iptables` + `tc`/`netem` | Administrador, `New-NetQosPolicy` (só banda) |
 | `net throttle --loss/--latency` | Linux apenas | ignorado com aviso |
@@ -271,11 +277,11 @@ No Windows a pilha nativa de QoS só limita banda; perda e latência são exclus
 
 ## Plataformas
 
-| | detect | voice | net block | net throttle |
-|---|---|---|---|---|
-| Linux x86_64 / arm64 | ✅ | ✅ | ✅ | ✅ |
-| Windows x86_64 | ✅ | ✅ | ✅ | banda |
-| macOS x86_64 / arm64 | ⚠️ `detect` usa `ss`, indisponível | ✅ | — | — |
+| | detect | voice | net jam | net block | net throttle |
+|---|---|---|---|---|---|
+| Linux x86_64 / arm64 | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Windows x86_64 | ✅ | ✅ | ✅ | ✅ | banda |
+| macOS x86_64 / arm64 | ⚠️ `detect` usa `ss`, indisponível | ✅ | — | — | — |
 
 O controle de voz é independente de plataforma: é REST.
 
@@ -329,6 +335,6 @@ silentium            # banner, local diagnosis, interactive menu
 silentium detect     # no credentials needed
 ```
 
-Requires Node 18+ only for installation; the CLI itself is a native binary. Voice actions need a bot token with `MOVE_MEMBERS`, `MUTE_MEMBERS`, `DEAFEN_MEMBERS`. Network shaping needs root on Linux (iptables/tc) or Administrator on Windows (firewall/QoS).
+Requires Node 18+ only for installation; the CLI itself is a native binary. Voice actions need a bot token with `MOVE_MEMBERS`, `MUTE_MEMBERS`, `DEAFEN_MEMBERS`. `silentium net jam` (and menu option 3) needs no token and no root/Administrator: it freezes and resumes the Discord process itself. Firewall blocking and QoS shaping still need root on Linux (iptables/tc) or Administrator on Windows.
 
 Star the repo if it saved a call.

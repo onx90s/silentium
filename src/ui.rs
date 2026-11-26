@@ -26,7 +26,7 @@ const BANNER: [&str; 6] = [
 const MENU: [(&str, &str, &str); 5] = [
     ("1", "detectar a call", "sockets locais, sem token"),
     ("2", "quem está na call", "gateway, com o seu token"),
-    ("3", "derrubar todos", "derruba a call"),
+    ("3", "derrubar todos", "atrapalha seu Discord, sem root"),
     ("?", "ajuda", "comandos e flags"),
     ("q", "sair", "encerra"),
 ];
@@ -391,11 +391,14 @@ fn token_line(cli: &Cli, color: bool) -> String {
 fn privilege_line(color: bool) -> String {
     if is_root() {
         format!(
-            "{} privilegiado — pode cortar e moldar tráfego",
+            "{} atrapalhamento local + firewall disponíveis",
             dot(color, true)
         )
     } else {
-        format!("{} sem privilégio — net só com sudo", dot(color, false))
+        format!(
+            "{} atrapalhamento local disponível — firewall exige sudo/admin",
+            dot(color, true)
+        )
     }
 }
 
@@ -454,7 +457,7 @@ fn help_hint(color: bool) {
         reset(color)
     );
     println!(
-        "{}silentium net auto --seconds 30{}",
+        "{}silentium net jam --seconds 30{}",
         dim(color),
         reset(color)
     );

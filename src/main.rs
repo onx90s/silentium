@@ -3,6 +3,7 @@ mod config;
 mod detect;
 mod discord;
 mod gateway;
+mod interrupt;
 mod logs;
 mod net;
 mod ui;
@@ -13,8 +14,6 @@ use clap::Parser;
 use cli::{Cli, Cmd, NetCmd, TargetArgs, VoiceCmd};
 use discord::Api;
 use std::collections::HashSet;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
 use std::thread::sleep;
 use std::time::Duration;
 
@@ -192,56 +191,9 @@ fn build_api(cli: &Cli) -> Result<Api> {
     ))
 }
 
-/// Derruba a call: REST para todos quando o token tem poder; senão, sai e corta.
-pub(crate) fn drop_call(cli: &Cli) -> Result<()> {
-    let tentativa = voice_dispatch(cli, &VoiceCmd::Drop(TargetArgs::default()));
-    match tentativa {
-        Ok(()) => Ok(()),
-        Err(err) => {
-            println!("sem permissão para remover os participantes ({err:#})");
-            println!("caindo para: sair da call e cortar o Discord");
-            let saiu = leave(cli).map(|_| ());
-            if let Err(erro) = saiu {
-                println!("  não consegui sair pelo gateway: {erro:#}");
-            }
-            let endpoint = logs::current_call()
-                .ok()
-                .flatten()
-                .and_then(|call| call.media_server);
-            cut_for(
-                net::ShapeSpec {
-                    rate_kbps: 1,
-                    loss_percent: None,
-                    delay_ms: None,
-                    iface: None,
-                },
-                endpoint,
-            )
-        }
-    }
-}
-
-/// Corta o fluxo de mídia da call (ou o processo inteiro, se não houver alvo).
-fn cut_for(_spec: net::ShapeSpec, endpoint: Option<String>) -> Result<()> {
-    let por_endpoint = endpoint.as_deref().map(net::block_endpoint).transpose();
-
-    let alvo = match por_endpoint {
-        Ok(Some(())) => endpoint.clone(),
-        _ => {
-            if let Err(err) = net::block() {
-                println!("  corte de rede indisponível: {err:#}");
-                return Ok(());
-            }
-            None
-        }
-    };
-
-    wait_window(Some(15), "cortando o Discord")?;
-
-    match &alvo {
-        Some(ep) => net::unblock_endpoint(ep),
-        None => net::unblock(),
-    }
+/// Opção 3 do menu: atrapalha só o Discord local, sem token ou privilégio.
+pub(crate) fn drop_call(_cli: &Cli) -> Result<()> {
+    net::jam(Some(15))
 }
 
 /// Diagnóstico: o que o token atual consegue e o que não consegue.
@@ -301,7 +253,15 @@ pub(crate) fn doctor(cli: &Cli) -> Result<()> {
         }
     );
     println!(
-        "  corte de rede    {}",
+        "  atrapalhar local   {}",
+        if crate::detect::discord_running().is_some() {
+            "disponível (sem token/root/admin)"
+        } else {
+            "rode o Discord primeiro"
+        }
+    );
+    println!(
+        "  firewall          {}",
         if cfg!(unix) {
             if is_root_hint() {
                 "disponível"
@@ -475,7 +435,7 @@ pub(crate) fn voice_dispatch(cli: &Cli, cmd: &VoiceCmd) -> Result<()> {
             if api.is_user_token() {
                 bail!(
                     "token de usuário não altera outros membros (a API devolve 403).\n\
-                     use `silentium voice leave` para sair da call ou `silentium net auto` para cortar.\n\
+                     use `silentium net jam` para atrapalhar o seu Discord sem permissão nenhuma.\n\
                      causa: {err:#}"
                 );
             }
@@ -525,14 +485,12 @@ fn run_guard(api: &Api, cli: &Cli, target: &TargetArgs, action: &str, interval: 
     let body = Api::body_for(action)?;
     let mut seen: HashSet<String> = HashSet::new();
 
-    let running = Arc::new(AtomicBool::new(true));
-    let flag = running.clone();
-    ctrlc::set_handler(move || flag.store(false, Ordering::SeqCst))
-        .context("não consegui instalar handler de Ctrl-C")?;
+    interrupt::install().map_err(anyhow::Error::msg)?;
+    interrupt::reset();
 
     println!("[+] vigiando guild {guild} (ação: {action}, a cada {interval}s)");
 
-    while running.load(Ordering::SeqCst) {
+    while !interrupt::hit() {
         match collect_targets(api, &guild, channel.as_deref(), &target.user) {
             Ok(current) => {
                 for t in current {
@@ -547,7 +505,7 @@ fn run_guard(api: &Api, cli: &Cli, target: &TargetArgs, action: &str, interval: 
             Err(err) => eprintln!("[!] tick falhou: {err}"),
         }
         for _ in 0..interval {
-            if !running.load(Ordering::SeqCst) {
+            if interrupt::hit() {
                 break;
             }
             sleep(Duration::from_secs(1));
@@ -559,23 +517,21 @@ fn run_guard(api: &Api, cli: &Cli, target: &TargetArgs, action: &str, interval: 
 }
 
 fn wait_window(seconds: Option<u64>, hint: &str) -> Result<()> {
-    let running = Arc::new(AtomicBool::new(true));
-    let flag = running.clone();
-    ctrlc::set_handler(move || flag.store(false, Ordering::SeqCst))
-        .context("não consegui instalar handler de Ctrl-C")?;
+    interrupt::install().map_err(anyhow::Error::msg)?;
+    interrupt::reset();
 
     match seconds {
         Some(secs) => {
             println!("[+] ativo por {secs}s ({hint})");
             let mut left = secs;
-            while left > 0 && running.load(Ordering::SeqCst) {
+            while left > 0 && !interrupt::hit() {
                 sleep(Duration::from_secs(1));
                 left -= 1;
             }
         }
         None => {
             println!("[+] ativo — {hint}");
-            while running.load(Ordering::SeqCst) {
+            while !interrupt::hit() {
                 sleep(Duration::from_millis(250));
             }
         }
@@ -585,6 +541,7 @@ fn wait_window(seconds: Option<u64>, hint: &str) -> Result<()> {
 
 fn net_dispatch(cmd: &NetCmd) -> Result<()> {
     match cmd {
+        NetCmd::Jam { seconds } => net::jam(*seconds),
         NetCmd::Clear { iface } => net::clear(iface.clone()),
         NetCmd::Unblock => net::unblock(),
         NetCmd::Auto { seconds, force } => {
@@ -595,18 +552,16 @@ fn net_dispatch(cmd: &NetCmd) -> Result<()> {
             if peers.is_empty() {
                 if !force {
                     println!(
-                        "[-] nenhuma call de voz detectada (use --force para cortar assim mesmo)"
+                        "[-] nenhuma call de voz detectada (use --force para atrapalhar assim mesmo)"
                     );
                     return Ok(());
                 }
-                println!("[!] sem call de voz, cortando por --force");
+                println!("[!] sem call de voz, atrapalhando por --force");
             } else {
                 let list: Vec<String> = peers.iter().map(|p| p.endpoint()).collect();
                 println!("[+] call ativa: {}", list.join(", "));
             }
-            net::block()?;
-            let waited = wait_window(*seconds, "Enter ou Ctrl-C para restaurar");
-            net::unblock().and(waited)
+            net::jam(*seconds)
         }
         NetCmd::Block { seconds } => {
             net::block()?;

@@ -1,4 +1,6 @@
-use anyhow::Result;
+use anyhow::{bail, Result};
+use std::thread::sleep;
+use std::time::{Duration, Instant};
 
 pub const VOICE_PORT_START: u16 = 50000;
 pub const VOICE_PORT_END: u16 = 65535;
@@ -47,11 +49,80 @@ pub fn clear(iface: Option<String>) -> Result<()> {
     }
 }
 
+/// Congela e retoma os processos do Discord em ciclos.
+/// Não mexe em sockets, firewall ou outros programas.
+pub fn jam(seconds: Option<u64>) -> Result<()> {
+    #[cfg(target_os = "linux")]
+    {
+        linux::jam(seconds)
+    }
+    #[cfg(windows)]
+    {
+        windows::jam(seconds)
+    }
+    #[cfg(not(any(windows, target_os = "linux")))]
+    {
+        let _ = seconds;
+        bail!("plataforma sem suporte a atrapalhar o Discord")
+    }
+}
+
+trait JamControl {
+    fn suspend(&mut self) -> Result<usize>;
+    fn resume(&mut self);
+}
+
+fn run_jam<J: JamControl>(mut jammer: J, seconds: Option<u64>) -> Result<()> {
+    crate::interrupt::install().map_err(anyhow::Error::msg)?;
+    crate::interrupt::reset();
+
+    println!("[+] atrapalhando só o Discord deste usuário — sem token, root ou admin");
+    let deadline = seconds.map(|secs| Instant::now() + Duration::from_secs(secs));
+    let mut first = true;
+    while !crate::interrupt::hit() {
+        if deadline.map(|end| Instant::now() >= end).unwrap_or(false) {
+            break;
+        }
+        let count = jammer.suspend()?;
+        if count == 0 {
+            bail!("nenhum processo do Discord deste usuário para atrapalhar");
+        }
+        if first {
+            println!("[+] {count} processo(s) do Discord em ciclos de 350ms/120ms");
+            first = false;
+        }
+        jam_sleep(Duration::from_millis(350));
+        jammer.resume();
+        jam_sleep(Duration::from_millis(120));
+    }
+    jammer.resume();
+    println!("[+] Discord restaurado");
+    Ok(())
+}
+
+fn jam_sleep(total: Duration) {
+    let end = Instant::now() + total;
+    while Instant::now() < end && !crate::interrupt::hit() {
+        let left = end.saturating_duration_since(Instant::now());
+        sleep(Duration::from_millis(20).min(left));
+    }
+}
+
 #[cfg(windows)]
 mod windows {
-    use super::{ShapeSpec, POLICY_PREFIX, VOICE_PORT_END, VOICE_PORT_START};
+    use super::{JamControl, ShapeSpec, POLICY_PREFIX, VOICE_PORT_END, VOICE_PORT_START};
     use anyhow::{bail, Context, Result};
+    use std::collections::HashSet;
     use std::process::Command;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+    use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
+    use windows_sys::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, Thread32First, Thread32Next, TH32CS_SNAPTHREAD, THREADENTRY32,
+    };
+    use windows_sys::Win32::System::Threading::{
+        OpenThread, ResumeThread, SuspendThread, THREAD_SUSPEND_RESUME,
+    };
 
     fn powershell(script: &str) -> Result<()> {
         let out = Command::new("powershell")
@@ -67,6 +138,77 @@ mod windows {
     }
 
     const BLOCK_RULE: &str = "Silentium-block";
+
+    struct ThreadJam {
+        threads: Arc<Vec<windows_sys::Win32::Foundation::HANDLE>>,
+        active: AtomicBool,
+    }
+
+    impl JamControl for ThreadJam {
+        fn suspend(&mut self) -> Result<usize> {
+            let mut count = 0;
+            for handle in self.threads.iter() {
+                if unsafe { SuspendThread(*handle) } != u32::MAX {
+                    count += 1;
+                }
+            }
+            if count > 0 {
+                self.active.store(true, Ordering::SeqCst);
+            }
+            Ok(count)
+        }
+
+        fn resume(&mut self) {
+            if self.active.swap(false, Ordering::SeqCst) {
+                for handle in self.threads.iter() {
+                    unsafe { ResumeThread(*handle) };
+                }
+            }
+        }
+    }
+
+    impl Drop for ThreadJam {
+        fn drop(&mut self) {
+            self.resume();
+            for handle in self.threads.iter() {
+                unsafe { CloseHandle(*handle) };
+            }
+        }
+    }
+
+    pub fn jam(seconds: Option<u64>) -> Result<()> {
+        let pids = crate::detect::discord_pids();
+        if pids.is_empty() {
+            bail!("Discord não está rodando neste usuário");
+        }
+        let allowed: HashSet<u32> = pids.into_iter().collect();
+        let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0) };
+        if snapshot == INVALID_HANDLE_VALUE {
+            bail!("CreateToolhelp32Snapshot falhou");
+        }
+        let mut entry: THREADENTRY32 = unsafe { std::mem::zeroed() };
+        entry.dwSize = std::mem::size_of::<THREADENTRY32>() as u32;
+        let mut threads = Vec::new();
+        let mut ok = unsafe { Thread32First(snapshot, &mut entry) } != 0;
+        while ok {
+            if allowed.contains(&entry.th32OwnerProcessID) {
+                let handle = unsafe { OpenThread(THREAD_SUSPEND_RESUME, 0, entry.th32ThreadID) };
+                if !handle.is_null() {
+                    threads.push(handle);
+                }
+            }
+            ok = unsafe { Thread32Next(snapshot, &mut entry) } != 0;
+        }
+        unsafe { CloseHandle(snapshot) };
+        if threads.is_empty() {
+            bail!("não consegui abrir as threads do Discord");
+        }
+        let jammer = ThreadJam {
+            threads: Arc::new(threads),
+            active: AtomicBool::new(false),
+        };
+        super::run_jam(jammer, seconds)
+    }
 
     pub fn block(on: bool) -> Result<()> {
         if !on {
@@ -143,29 +285,6 @@ Write-Output ("regras: {0}" -f $paths.Count)
         Ok(())
     }
 
-    pub fn block_endpoint(endpoint: &str) -> Result<()> {
-        let ip = endpoint
-            .rsplit_once(':')
-            .map(|(host, _)| host)
-            .unwrap_or(endpoint);
-        let script = format!(
-            "New-NetFirewallRule -DisplayName '{POLICY_PREFIX}-media' -Direction Outbound \
-             -RemoteAddress {ip} -Action Block -Profile Any -ErrorAction Stop | Out-Null"
-        );
-        powershell(&script).context("regra de firewall por endereço (Administrador)")?;
-        println!("[+] mídia de voz cortada para {ip}");
-        Ok(())
-    }
-
-    pub fn clear_endpoint() -> Result<()> {
-        let script = format!(
-            "Get-NetFirewallRule -DisplayName '{POLICY_PREFIX}-media' -ErrorAction SilentlyContinue | Remove-NetFirewallRule"
-        );
-        powershell(&script)?;
-        println!("[+] corte por endereço removido");
-        Ok(())
-    }
-
     pub fn clear() -> Result<()> {
         for name in [
             format!("{POLICY_PREFIX}-out"),
@@ -183,11 +302,73 @@ Write-Output ("regras: {0}" -f $paths.Count)
 
 #[cfg(target_os = "linux")]
 mod linux {
-    use super::{ShapeSpec, VOICE_PORT_END, VOICE_PORT_START};
+    use super::{JamControl, ShapeSpec, VOICE_PORT_END, VOICE_PORT_START};
     use anyhow::{bail, Context, Result};
     use std::process::Command;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
 
     const MARK: &str = "0x0d15";
+
+    struct ProcessJam {
+        pids: Arc<Vec<(u32, u64)>>,
+        active: AtomicBool,
+    }
+
+    fn start_time(pid: u32) -> Option<u64> {
+        let text = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+        let (_, rest) = text.rsplit_once(')')?;
+        rest.split_whitespace().nth(19)?.parse().ok()
+    }
+
+    impl JamControl for ProcessJam {
+        fn suspend(&mut self) -> Result<usize> {
+            let mut count = 0;
+            for (pid, start) in self.pids.iter().copied() {
+                if start_time(pid) != Some(start) {
+                    continue;
+                }
+                if unsafe { libc::kill(pid as libc::pid_t, libc::SIGSTOP) } == 0 {
+                    count += 1;
+                }
+            }
+            if count > 0 {
+                self.active.store(true, Ordering::SeqCst);
+            }
+            Ok(count)
+        }
+
+        fn resume(&mut self) {
+            if self.active.swap(false, Ordering::SeqCst) {
+                for (pid, start) in self.pids.iter().copied() {
+                    if start_time(pid) == Some(start) {
+                        unsafe { libc::kill(pid as libc::pid_t, libc::SIGCONT) };
+                    }
+                }
+            }
+        }
+    }
+
+    impl Drop for ProcessJam {
+        fn drop(&mut self) {
+            self.resume();
+        }
+    }
+
+    pub fn jam(seconds: Option<u64>) -> Result<()> {
+        let pids: Vec<_> = crate::detect::discord_pids()
+            .into_iter()
+            .filter_map(|pid| start_time(pid).map(|start| (pid, start)))
+            .collect();
+        if pids.is_empty() {
+            bail!("Discord não está rodando neste usuário");
+        }
+        let jammer = ProcessJam {
+            pids: Arc::new(pids),
+            active: AtomicBool::new(false),
+        };
+        super::run_jam(jammer, seconds)
+    }
 
     pub fn run(program: &str, args: &[&str]) -> Result<()> {
         let out = Command::new(program)
@@ -390,63 +571,5 @@ pub fn unblock() -> Result<()> {
     #[cfg(not(any(windows, target_os = "linux")))]
     {
         anyhow::bail!("plataforma sem suporte a bloqueio por processo")
-    }
-}
-
-/// Corta só o fluxo de mídia com o servidor informado ("ip:porta").
-pub fn block_endpoint(endpoint: &str) -> Result<()> {
-    #[cfg(target_os = "linux")]
-    {
-        let (ip, port) = endpoint.rsplit_once(':').unwrap_or((endpoint, "0"));
-        linux::run(
-            "iptables",
-            &[
-                "-C", "OUTPUT", "-p", "udp", "-d", ip, "--dport", port, "-j", "DROP",
-            ],
-        )
-        .or_else(|_| {
-            linux::run(
-                "iptables",
-                &[
-                    "-A", "OUTPUT", "-p", "udp", "-d", ip, "--dport", port, "-j", "DROP",
-                ],
-            )
-        })?;
-        println!("[+] mídia de voz cortada para {endpoint}");
-        Ok(())
-    }
-    #[cfg(windows)]
-    {
-        windows::block_endpoint(endpoint)
-    }
-    #[cfg(not(any(windows, target_os = "linux")))]
-    {
-        let _ = endpoint;
-        anyhow::bail!("sem suporte a corte por endpoint")
-    }
-}
-
-/// Desfaz o corte por endpoint.
-pub fn unblock_endpoint(_endpoint: &str) -> Result<()> {
-    #[cfg(target_os = "linux")]
-    {
-        let (ip, port) = _endpoint.rsplit_once(':').unwrap_or((_endpoint, "0"));
-        let _ = linux::run(
-            "iptables",
-            &[
-                "-D", "OUTPUT", "-p", "udp", "-d", ip, "--dport", port, "-j", "DROP",
-            ],
-        );
-        println!("[+] corte removido de {_endpoint}");
-        Ok(())
-    }
-    #[cfg(windows)]
-    {
-        windows::clear_endpoint()
-    }
-    #[cfg(not(any(windows, target_os = "linux")))]
-    {
-        let _ = _endpoint;
-        anyhow::bail!("sem suporte a corte por endpoint")
     }
 }

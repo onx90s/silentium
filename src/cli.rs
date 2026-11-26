@@ -113,6 +113,12 @@ pub enum VoiceCmd {
 
 #[derive(Subcommand, Debug, Clone)]
 pub enum NetCmd {
+    /// Atrapalha só o Discord deste usuário, sem token/root/admin.
+    Jam {
+        /// Duração em segundos. Sem isso, roda até Ctrl-C.
+        #[arg(long)]
+        seconds: Option<u64>,
+    },
     /// Aplica shaping no UDP de voz (50000-65535).
     Throttle {
         /// Banda permitida para o áudio, em kbps. 8 degrada, 2 mata.
@@ -136,7 +142,7 @@ pub enum NetCmd {
         #[arg(long)]
         iface: Option<String>,
     },
-    /// Corta a internet SÓ do Discord (firewall por processo). Outros apps seguem normais.
+    /// Corta a internet SÓ do Discord por firewall (precisa de root/Administrador).
     Block {
         /// Duração em segundos. Sem isso, fica até Enter/Ctrl-C.
         #[arg(long)]
@@ -144,7 +150,7 @@ pub enum NetCmd {
     },
     /// Desfaz o bloqueio.
     Unblock,
-    /// Detecta a call ativa e corta o Discord por N segundos.
+    /// Detecta a call ativa e atrapalha o Discord local por N segundos.
     Auto {
         /// Duração em segundos. Sem isso, fica até Enter/Ctrl-C.
         #[arg(long)]
